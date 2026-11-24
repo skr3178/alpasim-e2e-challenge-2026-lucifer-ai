@@ -1,4 +1,6 @@
-# Lucifer-LTF: route-aligned inference for the AlpaSim Challenge 2026 (nuPlan track)
+# AlpaSim E2E Closed Loop Challenge 2026: Team Lucifer AI solution (nuPlan track)
+
+**Lucifer-LTF**: route-aligned inference and a bend veto for end-to-end autonomous driving in NVIDIA AlpaSim closed-loop simulation.
 
 Team Lucifer AI's solution to the [NVIDIA AlpaSim E2E Closed Loop Challenge 2026](https://huggingface.co/spaces/nvidia/AlpasimE2EClosedLoopChallenge2026), nuPlan track.
 **4th of 56 teams** on the final public leaderboard and 4th in the organisers' finals re-run.

@@ -12,6 +12,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK="${1:-$HERE/work}"
 GARAGE_TAG=v0.2.2                 # commit ad6cb515c83f61207d2b83ae3d7faca1ba7ce99a
 CKPT_REPO=kesai-labs/py123d_garage_pretrained_checkpoints
+CKPT_MIRROR=skr3178/alpasim-e2e-challenge-2026-lucifer-ai     # unmodified copy, same paths
 CKPT_PATH=v0.2.0/ltf-base-waypoints-68M/posttrain/model_1.pth
 CKPT_SHA256_PREFIX=ae1619d546e5aacf
 
@@ -26,17 +27,18 @@ fi
 # the image build needs its gRPC package. Needs uv.
 [[ -d "$WORK/py123d_garage/lib/alpasim/alpasim/.git" ]] || bash "$WORK/py123d_garage/lib/alpasim/tools/setup_alpasim.sh"
 
-# 2. The host's released checkpoint (CC BY-NC-SA 4.0; not redistributed here).
+# 2. The host's released checkpoint (CC BY-NC-SA 4.0), from KE:SAI's repo or, if that fails, our unmodified mirror.
+fetch() {  # fetch <path in repo> <output file>
+	curl -L --fail -o "$2" "https://huggingface.co/$CKPT_REPO/resolve/main/$1" ||
+		curl -L --fail -o "$2" "https://huggingface.co/$CKPT_MIRROR/resolve/main/$1"
+}
 CKPT="$WORK/checkpoints/$CKPT_PATH"
-if [[ ! -f "$CKPT" ]]; then
-	mkdir -p "$(dirname "$CKPT")"
-	curl -L --fail -o "$CKPT" "https://huggingface.co/$CKPT_REPO/resolve/main/$CKPT_PATH"
-fi
+mkdir -p "$(dirname "$CKPT")"
+[[ -f "$CKPT" ]] || fetch "$CKPT_PATH" "$CKPT"
 sha256sum "$CKPT" | grep -q "^$CKPT_SHA256_PREFIX" || { echo "checkpoint hash mismatch" >&2; exit 1; }
 # The host build script also reads config.yaml and the nuPlan sensor rig next to the checkpoint.
 for f in config.yaml sensor_rig_nuplan.yaml; do
-	[[ -f "$(dirname "$CKPT")/$f" ]] ||
-		curl -L --fail -o "$(dirname "$CKPT")/$f" "https://huggingface.co/$CKPT_REPO/resolve/main/$(dirname "$CKPT_PATH")/$f"
+	[[ -f "$(dirname "$CKPT")/$f" ]] || fetch "$(dirname "$CKPT_PATH")/$f" "$(dirname "$CKPT")/$f"
 done
 
 # 3. lf-009: the host's own build script with our two driver settings switched on.

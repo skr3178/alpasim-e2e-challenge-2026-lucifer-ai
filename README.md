@@ -64,7 +64,8 @@ bash build.sh            # -> py123d-garage-ltfv6:lf-009 and py123d-garage-ltfv6
 `build.sh` clones py123d_garage v0.2.2 (`ad6cb51`), applies the patch and runs the host's setup and image build. It
 downloads the released checkpoint
 [`v0.2.0/ltf-base-waypoints-68M/posttrain/model_1.pth`](https://huggingface.co/kesai-labs/py123d_garage_pretrained_checkpoints)
-and checks its hash (`ae1619d5…`). It then builds lf-013 on top of lf-009. To evaluate locally, follow the
+and checks its hash (`ae1619d5…`). If KE:SAI's repo is unavailable, it falls back to our unmodified mirror,
+[skr3178/alpasim-e2e-challenge-2026-lucifer-ai](https://huggingface.co/skr3178/alpasim-e2e-challenge-2026-lucifer-ai). It then builds lf-013 on top of lf-009. To evaluate locally, follow the
 [py123d_garage AlpaSim docs](https://github.com/kesai-labs/py123d_garage/blob/main/docs/evaluation/alpasim.md).
 
 ## What did not transfer
@@ -77,7 +78,8 @@ data (lf-010) and a lead-departure speed rule (lf-012). Its experiment-history a
 - Our code (`patch/`, `bendveto/`, `build.sh`): MIT, see [LICENSE](LICENSE).
 - The patch modifies [py123d_garage](https://github.com/kesai-labs/py123d_garage) by KE:SAI (Apache-2.0).
 - Checkpoint: [kesai-labs/py123d_garage_pretrained_checkpoints](https://huggingface.co/kesai-labs/py123d_garage_pretrained_checkpoints)
-  (CC BY-NC-SA 4.0). It is downloaded, not redistributed.
+  (CC BY-NC-SA 4.0). An unmodified copy, under the same licence, is kept at
+  [skr3178/alpasim-e2e-challenge-2026-lucifer-ai](https://huggingface.co/skr3178/alpasim-e2e-challenge-2026-lucifer-ai).
 - Simulator and challenge: [NVlabs/alpasim](https://github.com/NVlabs/alpasim) (`e2e_challenge` branch).
 - Report layout: `report/neurips_2026.sty`, an AlpaSim adaptation of the NeurIPS 2026 template (CC BY 4.0, see
   [`report/LICENSE-template-CC-BY-4.0.md`](report/LICENSE-template-CC-BY-4.0.md)). Camera frames in `report/figures/`

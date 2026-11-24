@@ -1,0 +1,228 @@
+% Supplementary inventory, reviewed 2026-11-09; extended 2026-11-13 with the lf-012 entry and the November 10-13 items;
+% extended 2026-11-18 with the lf-013 entry, the November 16 last-slot review and the post-deadline 2026-11-18 snapshot
+% (leaderboard/2026-11-18/nuplan.json).
+% Evidence comments are indexed in experiment-history-evidence-20261109.json and, for the 2026-11-13 additions,
+% in experiment-history-evidence-20261113.json.
+\section{Experiment history: August--November 2026}\label{app:history}
+This inventory covers the completed experiment families and diagnostic work retained in our project records through November 17, 2026, the day of our final nuPlan entry. Repeated seeds, sweep points, checkpoint evaluations and infrastructure retries are grouped under their method. Proposed or prepared work is identified separately. Earlier comparisons used different checkpoints, scene subsets and evaluator revisions: their scores are historical observations, not a common benchmark or predictions of official PCS. All results below are local unless explicitly described as official. ``Perfect'' means score one, not a guarantee of correct or safe driving. Supporting records and hashes are indexed in the author's experiment records, available on request. Table~\ref{tab:entries} lists every official entry; the bullets that follow describe the work behind them.
+
+\begin{table}[htbp]
+\centering\footnotesize\setlength{\tabcolsep}{4pt}
+\caption{All official nuPlan entries of Team Lucifer AI, with every value taken from the post-deadline November 18, 2026 leaderboard snapshot used for Table~\ref{tab:official} \cite{board}. PCS is refitted as entries are added, so these values differ from earlier dated records. In this snapshot \texttt{lf-013} has the 4th-highest PCS among the best entries of the 57 participating teams (286 entries in all). Dates are UTC submission dates unless footnoted. $^a$First submitted August 29 on the pre-reset 1,485-scene board (rank 6 of 19 teams, PCS 1590); after the move to the final scene set the board lists it with a September 16 date. $^b$Not named in our local records; in the October 21 snapshot its official mean matched the host's public \texttt{model\_0014} entry to four decimals (0.8479); the board has since recomputed both means (now 0.8519 and 0.8529).}\label{tab:entries}
+\begin{tabular}{@{}lL{1.75cm}L{4.4cm}rrr@{}}
+\toprule
+Date & Entry & Policy & Mean $\uparrow$ & PCS [95\%] $\uparrow$ & km/inc. $\uparrow$ \\
+\midrule
+09-10 & \texttt{wajepa-s2} & WA-JEPA, two flow steps \cite{wajepa} & 0.7678 & 1149 [1085, 1213] & 0.626 \\
+09-16$^a$ & \texttt{vavam-stock} & Stock VaVAM-B \cite{vavam} & 0.5580 & 863 [818, 908] & 0.106 \\
+09-24 & untagged$^b$ & Public Py123d \texttt{model\_0014} & 0.8519 & 1501 [1428, 1575] & 0.228 \\
+09-30 & \texttt{lf-007} & \texttt{model\_0014}, route bridge, scale 1.25 & 0.8820 & 1568 [1487, 1649] & 0.407 \\
+10-12 & \texttt{B1} & \texttt{model\_0014}, fine-tuned planning head & 0.8767 & 1607 [1522, 1692] & 0.387 \\
+10-21 & \texttt{lf-008} & C2 epoch 31 (full-model training), exact targets & 0.8931 & 1680 [1583, 1776] & 0.528 \\
+10-30 & \lf{} & v0.2.0 waypoint seed 1, exact-arc route & 0.9454 & 2487 [2341, 2633] & 1.039 \\
+11-06 & \texttt{lf-010} & SimScale step 1,024, Track A, lead rule & 0.9433 & 2367 [2218, 2515] & 0.929 \\
+11-13 & \texttt{lf-012} & \lf{} weights, lead rule, 5$^\circ$ bend veto & 0.9462 & 2412 [2250, 2574] & 1.110 \\
+11-17 & \texttt{lf-013} & \lf{} weights, 10$^\circ$ bend veto only & 0.9494 & 2502 [2317, 2687] & 1.364 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begingroup
+\clubpenalty=10000
+\widowpenalty=10000
+
+\subsection{Early world/action-model baselines: VaVAM and WA-JEPA (August--September)}
+\begin{itemize}\setlength{\itemsep}{3pt}\setlength{\parsep}{0pt}\setlength{\parskip}{0pt}\setlength{\topsep}{3pt}
+% evidence: CURRENT-BEST.md | SETUP-NOTES.md
+\item \textbf{Stock VaVAM-B and the initial submission.} Packaged the organizer's driver, established local evaluation and submitted the stock model on August 29 (rank 6 of 19 teams, PCS 1590 on the pre-reset board) \cite{vavam}. This provided the initial official reference before the leaderboard reset and subsequent WA-JEPA entry.
+% evidence: CURRENT-BEST.md | README.md
+\item \textbf{VaVAM $\mu$P correction and larger checkpoint.} Restored the checkpoint's expected parameterization/base shapes and compared VaVAM-B/$\mu$P \cite{vavam,mup} with stock and VaVAM-L/$\mu$P. Historical 400-scene means were 0.8813 versus 0.8493 for corrected-B versus stock; the larger L checkpoint regressed on its screen.
+% evidence: CURRENT-BEST.md | SETUP-NOTES.md
+\item \textbf{VaVAM inference variants.} Tested output gains, batched multi-plan sampling, route/discriminator-based selection and selection-weight sweeps. Gains could increase progress but introduced collisions; sample-selection improvements were small or inconsistent. Seed reproducibility and silent-fallback defects were corrected during these tests.
+% evidence: CURRENT-BEST.md | README.md | SETUP-NOTES.md
+\item \textbf{Simple driving controls.} Tested go-straight, route-following, braking-aware and constant-speed/route hybrids. The route follower reached a historical 400-scene mean of 0.8896, but the confirmed hybrid added collisions relative to corrected VaVAM. A better mean alone was insufficient.
+% evidence: SETUP-NOTES.md | README.md
+\item \textbf{WA-JEPA integration-step comparison.} Integrated WA-JEPA \cite{wajepa} and tested 2, 4 and 12 flow steps. S2/S4 reached 0.9247/0.9302 on the historical 400 scenes; S12 reached 0.9667 on a smaller 100-scene screen. S12 was not a matched 400-scene result. Early latency projections used stale official limits and were subsequently withdrawn.
+% evidence: SETUP-NOTES.md
+\item \textbf{WA-JEPA S2 official entry and diagnosis.} The September 10 record reports 1,000/1,000 valid rollouts, official mean 0.7748 and PCS 986, substantially below its local 0.9247. Route-command alternatives did not resolve the loss. Saved traces showed gradual lateral departure; this did not establish an out-of-distribution private dataset.
+% evidence: README.md | py123d/MODEL.md
+\item \textbf{GTRS-Dense and public Py123d comparisons.} Integrated the pretrained GTRS-Dense \cite{gtrs} adapter and evaluated 400 scenes: mean 0.8424, 61 zeros and no inference failures. The older Py123d \texttt{model\_0014} reference scored 0.8420 locally despite stronger official standing than WA-JEPA. This exposed the local benchmark's misleading model ordering.
+\end{itemize}
+
+\subsection{Cosmos3-Edge: frozen backbone and learned driving head (September)}
+\begin{itemize}\setlength{\itemsep}{3pt}\setlength{\parsep}{0pt}\setlength{\parskip}{0pt}\setlength{\topsep}{3pt}
+% evidence: cosmos3/COMPATIBILITY.md
+\item \textbf{Full-checkpoint compatibility and native output.} Ran the full Cosmos3-Edge \cite{cosmos3edge,cosmos} generator/VAE with its camera-action adapter on one AlpaSim scene: 10/10 model calls, no fallback, approximately 2.48 s per call and 10.1 GiB sampled process VRAM. The rollout nevertheless exited the corridor, scored zero and reached only 29.6\% relative progress.
+% evidence: cosmos3/LOCAL-HEAD10-RESULT.md | cosmos3/ABLATION-RESULT.md
+\item \textbf{Ten-example head-training smoke test.} Trained an approximately 815,000-parameter waypoint head on frozen Cosmos features, verifying optimization, checkpoint reload and unchanged backbone weights. A vehicle-state convention issue was found and corrected. This was a pipeline test, not evidence of driving improvement or Cosmos-backbone fine-tuning.
+% evidence: cosmos3/ABLATION-RESULT.md
+\item \textbf{Visual-feature ablation.} Compared the frozen-Cosmos head with a state/route-only head on a tiny recording-separated pilot. On nine held-out examples, ADE was 2.414 m versus 1.977 m: adding these Cosmos features did not establish an advantage.
+% evidence: cosmos3/STEPWISE-RUN-20260921.md
+\item \textbf{Larger four-city real-camera pilot.} Expanded to 26 independent recordings: 19 training and seven validation, with 2,666/631 windows and 7,188 unique images. Both heads trained for 840 updates with Cosmos frozen. Visual-head ADE/FDE was 1.192/3.009 m versus 1.150/3.076 m for state/route-only: mixed metrics, no visual ADE advantage in any city. The learned head was not advanced to a 400-scene closed-loop comparison.
+% evidence: cosmos3/STEPWISE-RUN-20260921.md | cosmos3/ABLATION-RESULT.md
+\item \textbf{Camera and training-data readiness.} Audited real/simulated observations, temporal history, timestamp alignment, ego-state construction and whole-recording separation before feature caching. These checks made the pilot executable; neither they nor the small fits demonstrated Odyssey-style \cite{odyssey} transfer or a leaderboard-ready world-model policy.
+\end{itemize}
+
+\subsection{Older Py123d checkpoint: controller, trajectory and route changes (September--October)}
+\begin{itemize}\setlength{\itemsep}{3pt}\setlength{\parsep}{0pt}\setlength{\parskip}{0pt}\setlength{\topsep}{3pt}
+% evidence: README.md
+\item \textbf{MPC and stabilization sweeps.} Swept longitudinal/lateral tracking, acceleration and related controller costs, trajectory blending and output conventions on small development panels. Large development improvements shrank on the 141-scene comparison; the selected controller configuration improved the historical mean only from approximately 0.8523 to 0.8549.
+% evidence: README.md
+\item \textbf{Optuna search.} Ran, with Optuna \cite{optuna}, 36 completed trials of a planned 50-trial controller/stabilization search, followed by checks of trials 26 and 21. Trial 26 improved the 141-scene historical mean by about 0.0044, without reducing corridor failures. The development optimum was not a reliable estimate of general improvement.
+% evidence: openai_golf/RESULTS-2026-09-27.md
+\item \textbf{Prediction-versus-execution audit and predicted yaw.} Compared route inputs, planned paths and executed trajectories on corridor failures; tracking errors were much smaller than planned-path deviations. In fresh paired 141-scene tests, predicted yaw improved mean score by 0.0198 and corridor exits fell from eight to five; adding controller tuning gave only a small further gain.
+% evidence: openai_golf/RESULTS-ROUTE-BRIDGE-2026-09-27.md | openai_golf/RESULTS-ROUTE-VALIDATION-2026-09-27.md | openai_golf/submission-20261021-c2-e31-exact/README.md
+\item \textbf{Route bridging and early driver entry.} Built a smooth bridge over the missing near-route segment, tested heading/route conditioning and trajectory scale, and packaged the route-bridge/scale-1.25 variant as \texttt{lf-007}. These older-checkpoint modifications preceded the later exact-arc correction used by \lf{}.
+% evidence: openai_golf/RESULTS-2026-10-07-SCALE150-CHALLENGER.md | openai_golf/RESULTS-2026-10-08-TARGET40-CHALLENGER.md | openai_golf/RESULTS-2026-10-08-TARGET50-CHALLENGER.md | openai_golf/RESULTS-2026-10-09-SMALL-TWEAK-BATCH.md
+\item \textbf{Follow-up route and controller ablations.} Tested scale 1.5, 40/50 m targets, bridge tangents, direction fitting, controller gains and stabilization. Small-panel successes did not yield a convincing broad upgrade; some settings introduced failures. Fresh baseline reruns also showed why historical references could misattribute a regression.
+% evidence: openai_golf/stage1-2026-10-14/README.md | openai_golf/CURRENT-BEST-2026-10-21.md
+\item \textbf{Early off-road veto and progress warp.} Tried predicted-road-based lateral ramp candidates, straight-plan time warping and their combination on the older checkpoint. Small-panel rescues justified expansion, but the full 1,470-scene warp/bundle check introduced new zeros. These rules were excluded from the C2 submission.
+\end{itemize}
+
+\subsection{Real-data Py123d adaptation and larger training runs (October)}
+\begin{itemize}\setlength{\itemsep}{3pt}\setlength{\parsep}{0pt}\setlength{\parskip}{0pt}\setlength{\topsep}{3pt}
+% evidence: openai_golf/RESULTS-2026-10-09-FINETUNE-RUNS.md | openai_golf/RESULTS-2026-10-09-PILOT-CONFIRMATION.md
+\item \textbf{Frozen-feature planning-head fine-tuning.} Adapted roughly 9.6M planning parameters of \texttt{model\_0014} using independent nuPlan/OpenScene recordings, with representative, departure, stop and turn sampling. Tested learning rates, epochs and braking/false-go guards. The selected early pilot improved local closed-loop results, motivating larger trials.
+% evidence: openai_golf/departure-balance-2026-10-10/RESULTS.md | openai_golf/departure-balance-2026-10-10/panel-result.json | openai_golf/RESULTS-2026-10-10-OFFROAD-BEND-EXPERIMENT.md
+\item \textbf{Departure and tight-bend reweighting.} Trained immediate-departure versus unchanged-sampler heads and a low-clearance bend challenger. Departure reweighting reduced mean score by 0.0030 on 197 scenes. The bend challenger rescued one additional failure in its 139-scene check but worsened many successful tight-margin controls and was not advanced.
+% evidence: openai_golf/RESULTS-2026-10-12-B-ARMS.md | openai_golf/submission-20261012-b1/README.md
+\item \textbf{Larger head-training pools and B-series variants.} Expanded recordings, changed city/Singapore sampling and increased training duration. B1 passed its local comparison and was submitted; its official mean was lower than the preceding route-bridge entry. More local training and a positive screen did not guarantee transfer.
+% evidence: openai_golf/training-2026-10-16/README.md
+\item \textbf{Full-model C0 and C1 training.} Moved beyond frozen-head adaptation: C0 trained on approximately 184,000 cached examples; C1 expanded to approximately 372,000 candidate anchors. C1 completed ten epochs before a reboot interrupted the longer plan. Closed-loop gains improved even as open-loop validation error worsened, demonstrating that these measurements were not interchangeable.
+% evidence: openai_golf/training-2026-10-16/README.md | openai_golf/submission-20261021-c2-e31-exact/README.md
+\item \textbf{Two-PC data expansion and C2.} Combined caches from two machines, with approximately 622,000 indexed training anchors and city-balanced sampling; cache-valid counts were slightly lower. Trained and compared multiple C2 checkpoints. Epoch 31 plus exact route targeting became \texttt{lf-008}, with an official mean improvement over \texttt{lf-007} in the same October 21 snapshot. Larger-data training did help this earlier base policy.
+% evidence: openai_golf/PLAN-2026-10-18-NAVTEST-TRAINING.md | openai_golf/CURRENT-BEST-2026-10-21.md
+\item \textbf{K/M/N continuation ablations.} Tested continued training (K), live road/walkway/centreline supervision (M), and additional, explicitly separated public-navtest training recordings (N). None improved on C2 epoch 31 on the clean comparison; N regressed by 0.0143 over all 659 scenes. Recordings used by N cannot be counted as untouched evaluation for that arm.
+% evidence: openai_golf/boundary-probe-2026-10-10/RESULTS.md | openai_golf/RESULTS-2026-10-10-OFFROAD-BEND-EXPERIMENT.md
+\item \textbf{Road-boundary and auxiliary-perception diagnostics.} Audited human-path clearance, predicted road/object heads, map labels and differentiable boundary-loss feasibility. Some human trajectories themselves violated the evaluator's mapped boundary. These probes did not establish a deployable road-safety filter or justify shifting every prediction laterally.
+% evidence: openai_golf/boundary-probe-2026-10-10/RESULTS.md
+\item \textbf{Boundary-loss head training.} Trained a weak boundary-loss probe, rejected on braking guards, then a stronger boundary-plus-braking variant. The latter passed offline guards but tied its pilot reference on 196 scenes: 63 zeros each, with one off-road rescue and one new off-road failure. It was not promoted.
+\end{itemize}
+
+\subsection{Released v0.2.0 checkpoints and the lf-009 interface (late October)}
+\begin{itemize}\setlength{\itemsep}{3pt}\setlength{\parsep}{0pt}\setlength{\parskip}{0pt}\setlength{\topsep}{3pt}
+% evidence: openai_golf/STATE-2026-10-30-FINDINGS-AND-NOVEMBER-PLAN.md | openai_golf/PLAN-2026-10-18-NAVTEST-TRAINING.md
+\item \textbf{New pretrained waypoint/joint checkpoints.} Replaced the older development base with the released approximately 68M waypoint-flow policy \cite{weights}, a latent TransFuser \cite{transfuser} variant, and compared seeds and joint action/waypoint variants. The host's new checkpoints were externally trained releases, not models trained from scratch by our team.
+% evidence: openai_golf/STATE-2026-10-30-FINDINGS-AND-NOVEMBER-PLAN.md | openai_golf/PLAN-2026-10-18-NAVTEST-TRAINING.md
+\item \textbf{Route memory, extrapolation and ensembles.} Evaluated route memory, extrapolation, a three-seed prediction ensemble, whole-model weight averaging \cite{soups} and backbone-only averaging. None supplied a robust replacement for the selected single checkpoint; extrapolation and some combinations caused new failures. Route memory's benefit largely disappeared after exact target placement.
+% evidence: openai_golf/overnight-20261030/RESULTS.md | openai_golf/overnight-20261030/OUTPUT-ABLATION.md
+\item \textbf{Joint64 output-mode ablations.} Compared native waypoints, integrated actions and speed-dependent action/waypoint hybrids. Changes could trade off off-road failures against collisions or stalls; larger checks did not establish an upgrade over the waypoint reference.
+% evidence: openai_golf/STATE-2026-10-30-FINDINGS-AND-NOVEMBER-PLAN.md | technical_report/evidence-20261108.json
+\item \textbf{Exact-arc targets and keeping the served route whole.} Corrected route-target placement and avoided truncating the served polyline. Exact targeting improved mean score by 0.0054 and reduced zeros from 62 to 52 on the matched 1,473-scene comparison. The unchanged seed-1 checkpoint with these interface fixes became \lf{}, the base of all our later entries.
+% evidence: openai_golf/PLAN-2026-10-18-NAVTEST-TRAINING.md | openai_golf/headcheck-v020-2026-10-29/README.md
+\item \textbf{Checkpoint/interface parity checks.} Checked camera preprocessing, historical frames, speed inputs, route encoding, output coordinates and auxiliary head accuracy. Camera redistortion did not improve the diagnostic result. Successful inference was not treated as proof that input semantics or near-road geometry were correct.
+\end{itemize}
+
+\subsection{SimScale recovery adaptation: original pilots, corrections and scaling (October--November)}
+\begin{itemize}\setlength{\itemsep}{3pt}\setlength{\parsep}{0pt}\setlength{\parskip}{0pt}\setlength{\topsep}{3pt}
+% evidence: openai_golf/simscale-screen-2026-11-01/README.md
+\item \textbf{Original recovery pilot and long1 run.} Mixed SimScale \cite{simscale} synthetic recovery and real nuPlan data equally; screened step 500 of the 3,000-step run. On 231 hard scenes it removed a net 21 incidents and 17 deep stalls, but introduced nine incidents on 378 easy scenes. The optimistic weighted 331-scene forecast did not survive the larger easy-scene check.
+% evidence: openai_golf/simscale-screen-2026-11-01/README.md | openai_golf/path1-inference-audit-2026-11-02/CROSS-VALIDATION.md
+\item \textbf{Gentle1 and state-based model switching.} Lowered learning rate and synthetic share, trained 400 steps and tested both hard/easy groups: only four net hard incidents removed, with five new easy incidents. Separately, retrospective route-heading/speed selectors between base and recovery models failed recording-level cross-validation; their apparent training-set gain was not robust.
+% evidence: openai_golf/simscale-screen-2026-11-01/README.md
+\item \textbf{Driver-side bias correction of step 500.} A constant lateral offset compounded under replanning and was stopped. Speed-dependent lateral/heading correction removed the measured average bias but still caused seven easy-scene incidents while retaining 17 net hard-scene rescues. The prebuilt 50/50 base/step-500 blend was not evaluated; this is separate from the later tested 30\% interpolation.
+% evidence: openai_golf/PLAN-2026-11-02-TWO-PATHS.md | openai_golf/path1-inference-audit-2026-11-02/CROSS-VALIDATION.md
+\item \textbf{Conversion and label repairs.} Diagnosed synthetic-tail contamination of real labels, inappropriate temporal re-gridding, source-window split leakage, batch recycling, missing normalization buffers and route/timestamp errors. Rebuilt corrected corpora, masked supervision to the observed four seconds and introduced source-recording protection. Earlier failed runs were not reinterpreted as clean tests of the corrected recipe.
+% evidence: openai_golf/PLAN-2026-11-02-TWO-PATHS.md
+\item \textbf{Curated 5,000-anchor decoder pilot.} Filtered perturbations, speed and label plausibility, reduced synthetic share and anchored ordinary driving to \lf{}. Recovery accuracy improved, but correction was asymmetric and rendered predictions leaned right. This pilot was stopped before a closed-loop candidate test.
+% evidence: openai_golf/simscale-clean-pilot-2026-11-03/README.md | openai_golf/simscale-training-2026-11-03/RESULTS.md | openai_golf/simscale-preservation-queue-2026-11-03/RESULTS.md
+\item \textbf{Independent clean pilot and preservation A/B tests.} Built a 256-example, 97-recording recovery pilot and verified training with a frozen backbone. A 64-step CPU fit improved held-out lateral error by only about 5 mm. Subsequent A/B fits tested rendered-preservation examples: preservation improved, but recovery gains remained negligible.
+% evidence: openai_golf/simscale-label-control-2026-11-03/RESULTS.md | openai_golf/two-track-queue-2026-11-03/RESULTS.md
+\item \textbf{Loss-path controls and longer small-pool fits.} Tested label/gradient controls, then extended the A/B arms to 1,024 steps. Recovery gains remained only approximately 2.6--3.1 cm while real-image deviation rose above 0.12 m; both continuations stopped on guards. Duration alone did not fix the trade-off.
+% evidence: openai_golf/simscale-data-v3-2026-11-03/README.md | openai_golf/simscale-v3-lean-2026-11-04/RESULTS.md | openai_golf/label-semantics-check-2026-11-04/README.md
+\item \textbf{V3 residual-balanced pairs and lean test.} Paired opposite residuals within city/turn/speed groups and included rendered controls. The 256-step test stopped on a recovery-set shift guard; ordinary preservation checks passed, so this alone did not prove global lean. Full-horizon audits showed initially outward-moving recovery labels and unequal directional gains despite endpoint balancing.
+% evidence: openai_golf/route-recache-2026-11-04/PILOT-RESULTS.md | openai_golf/simscale-final-reserved-2026-11-04/README.md
+\item \textbf{Corrected route recache and reserved-recording pilot.} Rebuilt teacher features after correcting route construction/alignment and retested decoder adaptation. The corrected step-512 model showed recovery improvement under the preservation checks, justifying selection from the larger corrected corpus.
+% evidence: technical_report/evidence-20261108.json | openai_golf/simscale-fullpool-2026-11-04/PLAN.md
+\item \textbf{Expanded recovery pool, steps 256/512/768/1,024.} Selected 3,412 recovery anchors with city-balanced paired sampling, 2,272 rendered controls and 512 real controls. Step 512 plus both inference rules reached mean 0.9272 and 40 incidents; step 1,024 plus both rules reached 0.9303 and 38 incidents, versus 0.9132/52 for \lf{}, on 1,472 local scenes.
+% evidence: technical_report/evidence-20261108.json
+\item \textbf{Official SimScale submission, lf-010.} Submitted the corrected step-1,024 model together with the lead rule and Track A. In the same November 6 snapshot, mean score was 0.9433 versus \lf{}'s 0.9454, despite the local gain. This bundled comparison cannot identify whether weights, selectors or their interaction caused the negative transfer.
+% evidence: openai_golf/simscale-recovery-3412-2026-11-05/outputs/RESULTS.md | openai_golf/simscale-recovery-3412-2026-11-05/outputs/REPORT.md
+\item \textbf{Longer 3,412-step city-balanced run.} Evaluated checkpoints at 1,536/2,048/2,560/3,072/3,412 steps; most passed the reserved open-loop gates, while step 2,560 failed. The run visited 2,736 distinct recovery anchors (80.2\% of the pool), not every anchor once. In closed loop with both inference rules, steps 2,048 and 3,412 raised the weighted 609-scene score by 0.0195 and 0.0198 over \lf{} (35 and 32 at-fault incidents), but step 2,048 repeatedly went off road on an easy 863-panel scene that every other model passed, and step 3,412 added four new zeros on easy scenes. Neither was submitted: longer training fixed more hard scenes but broke easy ones.
+% evidence: openai_golf/wise-ft-2026-11-07/README.md
+\item \textbf{Same-initialization weight interpolation.} Following WiSE-FT \cite{wiseft}, tested 30\% of the corrected fine-tune delta with unchanged hooks. At 556 development scenes, compared with hooks alone, it removed no additional incident and lost three perfect scenes. The blend was stopped; reducing weight displacement did not preserve the desired gains in that test.
+\end{itemize}
+
+\subsection{Inference-only changes around lf-009 (November)}
+\begin{itemize}\setlength{\itemsep}{3pt}\setlength{\parsep}{0pt}\setlength{\parskip}{0pt}\setlength{\topsep}{3pt}
+% evidence: openai_golf/inference-paper-2026-11-02/README.md | openai_golf/inference-paper-2026-11-02/paired-repair.log | openai_golf/inference-paper-2026-11-02/paired-smooth.log
+\item \textbf{Paper-inspired trajectory refinement.} Implemented bounded acceleration/curvature projection and smoothing: neither changed any score on the paired 32-scene test. Predicted-box collision margins, braking retiming and progress proposals were also exercised in shadow mode. These were limited adaptations, not reproductions of complete learned safety-filter methods or proven safety guarantees.
+% evidence: openai_golf/inference-route6080-609-2026-11-02/README.md | openai_golf/inference-route6080-609-2026-11-02/report.json
+\item \textbf{Dropping the 40 m route target.} A native 60/80 m-only mask rescued one collision on a 32-scene diagnostic panel. The fresh paired 609-scene study instead reduced the weighted mean by 0.0058 and increased zeros from 52 to 55. Rejected; this ablation is distinct from exact-arc target placement.
+% evidence: technical_report/evidence-20261108.json | openai_golf/lead-guards-2026-11-07/RESULTS.md
+\item \textbf{Lead-departure rule and targeted guards.} Advanced slowly moving plans when predicted lead motion and existing intent supported departure. Across the corrected 1,472-scene comparison, lead-only improved mean by 0.00566, improved 32 scores and worsened none. Motion/path-support vetoes reduced gains on targeted checks; unchanged scores during four human-wait intervals did not prove safe waiting behavior.
+% evidence: technical_report/evidence-20261108.json
+\item \textbf{Track A and combined rules.} Sampled 16 policy plans and selected using predicted road/object checks when the default failed. Track A showed a small 609-scene gain with uncertainty spanning zero. The actual combined lead-plus-selector run improved locally; it remained necessary to test the combination, rather than assume separate gains add.
+% evidence: openai_golf/speed-test-2026-11-04/README.md
+\item \textbf{Uniform speed retiming.} Tested a 1.05 speed multiplier on the SimScale-512/combined-rule candidate. Progress increased on many scenes, but zeros rose from 41 to 50 on 609 scenes, including new easy-scene failures. Rejected; the proposed 1.10 arm was not run.
+% evidence: openai_golf/centre-probe-2026-11-06/README.md
+\item \textbf{Predicted-centreline warning probe.} Logged 62 development scenes without changing driving. A candidate-switching rule could warn early for eight of 22 incident scenes, but also activated in eight of 40 clean scenes. No larger intervention run was justified by this diagnostic.
+% evidence: openai_golf/bendveto-2026-11-11/README.md | openai_golf/bendveto-2026-11-11/closedloop-result.json | openai_golf/bendveto-2026-11-11/why-limited.json
+\item \textbf{Bend veto.} Shifted the nominal plan laterally by 0.5 or 1.0 m when it bent by at least 10$^\circ$ and the policy's own predicted road map gave probability below 0.5 under the planned footprint, provided the shifted plan was clearly better supported and touched no predicted vehicle. On the 1,472 scenes it removed 10 of 52 incident scenes, added none and lost no score-one scene (mean 0.9132 to 0.9200). Its reach is limited: it acted in 12 of the 44 off-road failures; 16 others show no low-road signal in the predicted map and 11 have bends below 10$^\circ$.
+% evidence: openai_golf/leadveto-2026-11-11/README.md | openai_golf/leadveto-2026-11-11/closedloop-result.json
+\item \textbf{Lead rule plus bend veto.} Combined both rules in one image, without Track A sampling. They never acted in the same scene: the lead rule in 58 scenes, the veto in 47. The mean rose to 0.9257 and incident scenes fell from 52 to 42, with 18 score-one scenes gained and none lost.
+% evidence: openai_golf/PLAN-2026-11-12-QUICK-WINS.md | openai_golf/candidate-b-2026-11-12/README.md | openai_golf/candidate-b-2026-11-12/step2.json | openai_golf/candidate-b-2026-11-12/step4.json
+\item \textbf{Pre-registered extensions: lead follow-through and a 5$^\circ$ bend limit.} Pass rules were fixed before any run, on development and confirmation halves of the 44 public recordings; both halves had appeared in earlier full runs, so this guarded against tuning rather than providing an independent test. A follow-through extension of the lead rule harmed no scene but gained 0.69 scene-score units on 23 development scenes against a required 0.8, and was dropped without retuning. Lowering the bend limit to 5$^\circ$ passed: on the full 1,472 scenes it differs from the 10$^\circ$ version in exactly four scenes, three off-road failures becoming score one and one scene falling from 0.999 to 0.931. Result: mean 0.9277, 39 incident scenes, 21 score-one scenes gained and none lost.
+% evidence: openai_golf/submission-20261112-bend5/README.md | openai_golf/LEADERBOARD-NUPLAN-2026-11-13c.json
+\item \textbf{Third entry, \texttt{lf-012}.} Submitted the rule-only variant (\lf{} weights, lead rule, 5$^\circ$ bend veto) on November 13 after a 32/32 warm-up. Its official mean (0.9462) and incident distance (1.110 km) exceed \lf{}'s, but its PCS was 2261 against 2302 in the November 13 snapshot (2412 against 2487 in the final one), with overlapping intervals. Local selection on score-one retention and incident counts, adopted after \texttt{lf-010}, therefore also failed to predict the official PCS ordering.
+% evidence: openai_golf/controller-gains-2026-11-13/README.md | openai_golf/controller-gains-2026-11-13/track-gap.json
+\item \textbf{Controller-tracking audit.} Compared planned with driven motion over 12,078 plans from the 1,342 scenes of that run in which no rule acted. The car follows the plan closely (driven-to-requested distance 1.02 at the median), and stalls coincide with plans that request almost no motion. No controller-gain variant was therefore run or submitted.
+% evidence: openai_golf/last-slot-2026-11-16/README.md | openai_golf/last-slot-2026-11-16/rule_footprint.py | openai_golf/last-slot-2026-11-16/veto_bend.py
+\item \textbf{Last-slot review: which rule cost \texttt{lf-012} its PCS.} Re-read the saved full local runs of \lf{}, veto-only, lead-only, both rules at 10$^\circ$ and \texttt{lf-012}. Both rules were clean locally: the 10$^\circ$ veto acted in 47 scenes and every one of the 32 that were perfect under \lf{} stayed perfect; the lead rule acted in 58 and only ever raised progress. Local data therefore could not assign \texttt{lf-012}'s official loss to either rule. Officially its distance to the human path rose 3.0\% against 1.5\% locally, so its rules acted more on the hidden recordings. All 10 local veto fixes lie on bends of 12.8--27.8$^\circ$, so a sharper gate would not have helped.
+% evidence: openai_golf/submission-20261117-vetoonly/README.md | openai_golf/submission-20261117-vetoonly/official-submit.json | leaderboard/2026-11-18/nuplan.json
+\item \textbf{Final entry, \texttt{lf-013}.} Submitted the veto alone at 10$^\circ$ (\texttt{lf-012}'s image with the lead rule off), the smallest change with a clean full local run, on November 17; because of the deadline it was sent while its warm-up was still queued, and the warm-up (32/32) succeeded afterwards. It is the only post-\lf{} entry whose official mean (0.9494), incident distance (1.364 km) and PCS (2502 against 2487) all rose, with overlapping PCS intervals. Duplicating \lf{} to redraw its interval, a 5$^\circ$ veto alone and any untested gate were rejected.
+\end{itemize}
+
+\subsection{PDM labels and learned candidate scorers (November)}
+\begin{itemize}\setlength{\itemsep}{3pt}\setlength{\parsep}{0pt}\setlength{\parskip}{0pt}\setlength{\topsep}{3pt}
+% evidence: openai_golf/centring-2026-11-06/README.md
+\item \textbf{Real-data centred-label training.} Cached 12,202 real-image anchors, including 1,857 eligible label edits, and ran nine centring/preservation variants with different learning rates, balancing and loss weights. Stronger fitting also increased global lean; no tested setting established conditional centring without preservation damage. No closed-loop candidate was advanced.
+% evidence: openai_golf/pdm-conversion-2026-11-05/README.md | openai_golf/pdm-expansion-2026-11-06/README.md
+\item \textbf{PDM conversion, parity and expansion.} Converted 4,979 of the initial 5,000 SimScale clips \cite{simscale}, whose labels come from a PDM-style rule-based planner \cite{pdm}; 21 lacked required sources. Audited raw/converted poses, routes, images, timing, labels and trainer compatibility; investigated teacher-cache numerical parity before expanding selection. PDM trajectories were not assumed to be human-line recovery labels and required explicit slowdown checks.
+% evidence: openai_golf/pdm-lateral-audit-2026-11-06/README.md | openai_golf/pdm-lateral-pilot-2026-11-06/outputs/RESULTS.md
+\item \textbf{PDM lateral-only training.} After full-trajectory pairing proved restrictive, trained a small speed-matched lateral adaptation from 33 pairs. Step 256 improved lateral error by 3.3 cm but failed preservation checks; it was not extended to step 512 or closed-loop evaluation. This does not rule out all PDM uses.
+% evidence: openai_golf/scorer-feasibility-2026-11-06/README.md | openai_golf/scorer-pilot-2026-11-06/README.md
+\item \textbf{Frozen-driver learned scorer pilot.} Trained a small candidate-ranking head, a reduced form of learned trajectory scoring \cite{hydramdp,gtrs}, while keeping \lf{}'s weights unchanged. Offline ground-truth road geometry graded candidates but was not an inference input. Conservative guards left no demonstrated held-out rescues; simply taking the highest scorer output could introduce regressions.
+% evidence: openai_golf/scorer-recovery-2026-11-06/README.md
+\item \textbf{Recovery-state scorer feasibility and sampler repair.} Expanded recovery examples, audited motion/progress constraints and corrected the cached sampling stream to match Track A. Too few useful alternatives survived the fixed guards, so this corpus did not advance to another scorer fit. A selector cannot recover a path absent from its candidate set.
+% evidence: openai_golf/scorer-boundary-mining-2026-11-06/README.md
+\item \textbf{Boundary-mined scorer.} Mined road-exit states from independent training data and fitted an approximately 241,000-parameter residual scorer. It achieved three development rescues versus four for the existing heuristic, and zero confirmation rescues, matching the confirmation oracle ceiling. No simulator or official improvement was established.
+\end{itemize}
+
+\subsection{RoaD-inspired on-policy and shadow-label adaptation (November 7--9)}
+\begin{itemize}\setlength{\itemsep}{3pt}\setlength{\parsep}{0pt}\setlength{\parskip}{0pt}\setlength{\topsep}{3pt}
+% evidence: openai_golf/road-pilot-2026-11-07/RESULTS.md | openai_golf/road-long-capture-2026-11-07/RESULTS.md | technical_report/evidence-20261108.json
+\item \textbf{Guided collection and decoder distillation.} Following RoaD \cite{road}, collected policy rollouts with 64 sampled plans, logged-human guidance and recovery blending; trained only the flow denoiser with real/rendered preservation. Expanded collection, repaired startup-history reconstruction and compared repeated collection rounds. The 48-scene paired test in the main report showed no convincing general learned-policy gain.
+% evidence: technical_report/evidence-20261108.json | openai_golf/road-unguided-labels-2026-11-08/README.md
+\item \textbf{Earlier intervention and rounds 1--3.} An earlier-intervention privileged teacher rescued three off-road failures on 24 scenes. Learned round-2 step 768 improved its training panel and rescued failures on other recordings, but lost one of 24 previously perfect controls on the reused 55-scene panel. Round 3 matched round 2 (five zeros on the 24 training scenes): guided rounds saturated because their labels sat on the human line (median 0.005--0.11 m), not at the 0.3--1.1 m offsets from which \lf{} actually fails.
+% evidence: openai_golf/road-unguided-labels-2026-11-08/README.md
+\item \textbf{Unguided-state shadow labels, U and U+.} Motivated by DAgger \cite{dagger} and the rollout-guided preventive supervision of RoG-DAgger \cite{rogdagger}, let \lf{} execute its nominal plan while recording feasible teacher alternatives at pre-departure states. Only 17 labels from seven scenes survived: at 28 of 78 pre-departure states, none of \lf{}'s 64 samples stayed on the road for 2 s, so once about 0.5 m off its line the policy's own samples contained no recovery to select. Trained shadow-only U and mixed U+; U-1024 reduced training-panel zeros from seven to three and initially preserved all 24 perfect controls on the 55-scene panel. U was exploratory because its label count missed the primary-arm minimum.
+% evidence: openai_golf/road-unguided-labels-2026-11-08/README.md
+\item \textbf{Mixture and preservation diagnostics.} U+ underperformed U, but used about 12.5 times fewer shadow-label draws, so this did not isolate harm from guided labels. U-1024 already failed open-loop rendered-deviation/lean checks. Its small-panel success was therefore treated as provisional, not evidence that preservation guards were unnecessary.
+% evidence: openai_golf/road-unguided-labels-2026-11-08/README.md
+\item \textbf{Larger U-1024 development check: rejected.} Stopped at 417 of 814 planned scenes: incidents stayed at 11, with two removed and two new off-road zeros on previously perfect scenes. Partial-scene scores improved and the weighted mean rose by 0.0075, but the preservation/incident gates failed. No protected-final evaluation or submission followed. Constructed preventive-label expansion remained a proposal at this review cutoff.
+\end{itemize}
+
+\subsection{Evaluation, data and diagnostic work supporting these experiments}
+\begin{itemize}\setlength{\itemsep}{3pt}\setlength{\parsep}{0pt}\setlength{\parskip}{0pt}\setlength{\topsep}{3pt}
+% evidence: README.md | openai_golf/RESULTS-2026-10-09-FULL1485-INCUMBENT.md | technical_report/evidence-20261108.json
+\item \textbf{Broader public coverage and paired comparisons.} Expanded beyond the initial 400 scenes to the 1,485-scene public manifest, with usable matched denominators explicitly recorded per run. Added city/source-recording summaries, hard/easy controls, recording-bootstrap uncertainty and protected splits. Later 1,470/1,472/1,473-scene results are not silently treated as identical datasets.
+% evidence: openai_golf/PCS-SENSITIVITY-2026-11-06.md | technical_report/evidence-20261108.json
+\item \textbf{Metric and baseline audits.} Recomputed official scene-score components, investigated corridor scoring, corrected non-reproducing historical baselines and fitted local Drive-IRT \cite{driveirt} with score-one transitions. Local PCS improved some model orderings but still missed the \texttt{lf-010} reversal. Private-score sensitivity edits were diagnostics, not a universal PCS exchange rate.
+% evidence: openai_golf/offroad-analysis-2026-11-01/README.md | openai_golf/road-unguided-labels-2026-11-08/README.md
+\item \textbf{Failure casebooks and state-distribution analysis.} Separated corner cutting, straight-road drift, mapped-edge/human-path conflicts, collisions and stalls; compared supplied routes, planned paths and execution. Later shadow captures demonstrated that guided demonstrations often missed the actual pre-departure states reached by the unguided policy.
+% evidence: openai_golf/departure-audit-2026-11-02/README.md | technical_report/figures/rendered_signal_982b57b1.jpg
+\item \textbf{Departure cues and rendered traffic lights.} Audited 24 departure and 12 wait events in nuPlan frames: a visible reason explained 11 of 12 waits and about 15 of 24 departures, and no red-to-green change fell inside any departure window. In six stall rollouts the rendered lights stayed unchanged for 5 s while the logged human departed (Appendix~B, Figure~\ref{fig:signal}). We therefore treat signal stalls as outside the reach of our rules and built no rule that departs at a rendered red light.
+% evidence: openai_golf/pdm-conversion-2026-11-05/README.md | openai_golf/simscale-fullpool-2026-11-04/PLAN.md | openai_golf/training-2026-10-16/README.md
+\item \textbf{Data integrity and scaling infrastructure.} Built source-log exclusions, whole-recording splits, temporal/image/calibration checks, frozen-teacher caches, portable second-PC handoffs and checkpoint retention. Added SSD staging and resumable queues. Downloaded, converted, cached, selected and actually sampled counts were tracked separately; not all available data was trained on.
+\end{itemize}
+
+\subsection{Reviewed or prepared alternatives, not completed driving improvements}
+\begin{itemize}\setlength{\itemsep}{3pt}\setlength{\parsep}{0pt}\setlength{\parskip}{0pt}\setlength{\topsep}{3pt}
+% evidence: openai_golf/DATASET-SURVEY-2026-10-30.md | openai_golf/PLAN-2026-11-03-TWO-TRACKS.md
+\item \textbf{Other data sources.} Probed or audited LEAD \cite{lead} perturbed-view data, nuReasoning \cite{nureasoning} and nuScenes \cite{nuscenes}, and surveyed CASCADE \cite{cascade}, PhysicalAI-AV \cite{nvidiadata}, DriveCoT \cite{drivecot}, WorldEngine \cite{worldengine} and others. These are not reported as trained challenge models. Departure/wait mining and additional downloads likewise do not constitute a completed fine-tune by themselves.
+% evidence: alternative_models/alt_model.md | openai_golf/PLAN-2026-10-18-NAVTEST-TRAINING.md | cosmos3/STEPWISE-RUN-20260921.md
+\item \textbf{Uncompleted model/architecture proposals.} Reviewed alternatives including HDP \cite{hdp}, Diffusion Planner \cite{diffplanner}, DiffusionDrive \cite{diffusiondrive}, WAM-Flow \cite{wamflow}, Alpamayo \cite{alpamayo} and robotics-policy recipes. Discussed GRU/transformer temporal residual adapters, ego-history extensions and selective backbone adaptation. The completed Cosmos experiment kept its backbone frozen; no full Cosmos fine-tune, trained temporal residual adapter or OPTED \cite{opted} reinforcement-learning teacher is claimed in this inventory.
+\end{itemize}
+
+\endgroup

@@ -1,0 +1,281 @@
+\documentclass{article}
+\PassOptionsToPackage{numbers}{natbib}
+\usepackage[preprint]{neurips_2026}
+\makeatletter\renewcommand{\@noticestring}{}\makeatother
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref,xurl,booktabs,graphicx,xcolor,amsmath,array,tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc}
+\hypersetup{colorlinks=true,linkcolor=blue!45!black,citecolor=blue!45!black,urlcolor=blue!45!black,pdftitle={Lucifer-LTF: Route-Aligned Inference and Conservative Adaptation for the AlpaSim Challenge},pdfauthor={Sangram Rout}}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcommand{\lf}{\texttt{lf-009}}
+\renewcommand{\arraystretch}{1.12}
+\title{Lucifer-LTF: Route-Aligned Inference and\protect\\Conservative Adaptation for the AlpaSim Challenge}
+\author{Sangram Rout\\Independent Researcher\\Team Lucifer AI (\texttt{team-lucifer})}
+\date{}
+\begin{document}
+\maketitle
+\begin{abstract}
+We describe Team Lucifer AI's entries to the nuPlan track of the AlpaSim E2E Closed Loop Challenge 2026. Our final entry, \texttt{lf-013}, keeps the public py123d\_garage Latent TransFuser (LTF) checkpoint, a single-front-camera policy with a flow-matching planner, and changes only inference, in two ways. First, we correct the route interface. The simulator's route starts about 42~m ahead of the ego vehicle, and the baseline adapter took the straight-line distance to that point as distance along the road, misplacing the policy's 40/60/80~m route targets on bends. We place the targets by distance along the road and stop truncating the route at the point nearest the ego vehicle. Second, we add a bend veto. When the planned path turns by at least 10$^\circ$ and the policy's own predicted road map gives probability below 0.5 under the planned footprint, the plan is shifted sideways by 0.5 or 1.0~m, provided the shifted plan is clearly better supported and touches no predicted vehicle. Neither change reads an HD map or a logged future trajectory. On our local 1,472-scene benchmark the veto acted in 47 scenes, turned 10 off-road failures into full-score scenes and lost no full-score scene. On the post-deadline public leaderboard (November 18, 2026), \texttt{lf-013} has a mean scene score of 0.9494 and a Policy Capability Score (PCS) of 2502, the 4th-highest PCS among the best entries of the 57 participating teams. We also document what did not transfer: two earlier variants, which between them added conservative decoder-only adaptation on SimScale recovery data, plan sampling, a lead-departure rule and a 5$^\circ$ veto, raised our local mean score but received lower PCS point estimates than the route-corrected entry alone, with overlapping intervals.
+\end{abstract}
+
+% v2 planning notes (tables and figures to add) live in technical_report/TODO-v2.md, not here.
+\section{Introduction}
+A driving policy's small planning errors change every observation that follows, so a policy can look accurate on logged data and still fail when it drives \cite{pdm}. The AlpaSim E2E Closed Loop Challenge 2026 \cite{alpasim,board} evaluates policies in closed loop, in neural reconstructions of recorded scenes, and summarizes each entry by a Policy Capability Score (PCS), a Drive-IRT fit over all entries \cite{driveirt}, alongside the mean scene score. This report describes Team Lucifer AI's four entries to the nuPlan track, submitted between October 30 and November 17, 2026, and what their results show about which local improvements survive a hidden closed-loop benchmark.
+
+We did not train a driving model. Every entry keeps the public py123d\_garage Latent TransFuser checkpoint \cite{garage,weights,py123d}, a roughly 68M-parameter single-camera policy, and changes how it is used: the route targets it receives, the rules applied to the poses it plans, and, for one entry, a small decoder-only adaptation on synthetic recovery data. Our local benchmark of 1,472 public scenes preferred the larger changes. The official benchmark preferred the smallest. Our contributions are:
+\begin{enumerate}
+\item \textbf{A route-interface correction} (\lf{}, Section~\ref{sec:route}). The served route starts about 42~m ahead of the ego vehicle. The baseline adapter took the straight-line distance to that point as distance along the road, which misplaces the checkpoint's 40/60/80~m targets on bends. We place the targets by distance along the road and keep the served route whole. On a 1,473-scene matched local panel this raised the mean score by 0.0054 and cut zero-score scenes from 62 to 52; on the October 31 official snapshot \lf{} scored 0.9454 against 0.9437 for the host's entry with the same checkpoint.
+\item \textbf{A bend veto} (\texttt{lf-013}, Section~\ref{sec:veto}). When the plan bends by at least 10$^\circ$ through a region where the policy's own predicted road map gives probability below 0.5, the plan is shifted sideways by 0.5 or 1.0~m, provided the shifted plan is clearly better supported and touches no predicted vehicle. Run stand-alone on all 1,472 local scenes, the veto acted in 47, turned 10 off-road zero-score scenes into score-one scenes and lost none. Submitted as \texttt{lf-013}, it has our best official mean score (0.9494), incident distance (1.364~km) and PCS (2502), the 4th-highest PCS among the best entries of the 57 participating teams.
+\item \textbf{A transfer study} (Section~\ref{sec:results}). Two entries with larger local gains, \texttt{lf-010} (decoder-only SimScale adaptation plus two inference rules) and \texttt{lf-012} (\lf{}'s weights with a lead-departure rule and a 5$^\circ$ veto), received lower PCS point estimates than \lf{} alone, and an on-policy adaptation branch inspired by RoaD produced no gain that our 48-scene comparison could resolve. We report these results in the same detail as the positive one. Appendix~\ref{app:repro} gives the submission identities and container digests of all four entries, and Appendix~\ref{app:history} the experiment history behind them.
+\end{enumerate}
+
+\section{Related work}
+\paragraph{Base policy.}
+TransFuser \cite{transfuser} is an imitation-learned driving policy that fuses camera and LiDAR features with transformers; its Latent TransFuser (LTF) variant is camera-only. The LTF in py123d\_garage \cite{garage,weights} adds latent bird's-eye-view features, auxiliary road-map and object heads, and a waypoint planner trained with flow matching, in the family of diffusion and flow trajectory decoders \cite{diffusiondrive,diffplanner,wamflow}. The organizers released the checkpoint we use; its card discloses pretraining on NVIDIA Physical AI AV and NuRec data \cite{nvidiadata} in addition to nuPlan \cite{nuplan,openscene}. Its auxiliary heads supply the predicted road map and object boxes that our rules read.
+
+\paragraph{Closed-loop post-training.}
+Dataset aggregation \cite{dagger} labels the states a policy reaches with an expert and retrains on them. Recent driving work applies this in reconstructed scenes: RoaD \cite{road} guides rollouts toward the logged human trajectory and fine-tunes on them, OPTED \cite{opted} labels on-policy states with a render-free teacher, and RoG-DAgger \cite{rogdagger} post-trains on guided rollouts. SimScale \cite{simscale} instead renders perturbed views of real logs and labels them with a pseudo-expert, which gives recovery data without a closed-loop rollout; LEAD \cite{lead} also trains on perturbed views of logged scenes. Our \texttt{lf-010} adaptation uses SimScale's recovery corpus, and our on-policy branch follows RoaD.
+
+\paragraph{Rules around a learned policy.}
+Other entries to this challenge pair a learned policy with a deployment-time rule. GatedVLA \cite{gatedvla} adds detector-based emergency braking to a vision-language-action policy, and Lao Siji \cite{laosiji} keeps speed control with its base model's lead-vehicle estimate behind a rule-based speed layer. Both rules act longitudinally and both entries are on the PAI-AV track. Our bend veto acts laterally, on the nuPlan track, and its trigger is the policy's own road prediction rather than a separate detector or a map.
+
+\paragraph{Evaluation.}
+Dauner et al.\ \cite{pdm} showed on nuPlan that open-loop accuracy is a weak proxy for closed-loop driving. The challenge's Drive-IRT \cite{driveirt} fits an item-response model over all entries and models zero, intermediate and score-one scene outcomes separately, so an entry's PCS depends on the whole population and is refitted as entries arrive. Section~\ref{sec:results} shows a further gap: our local mean score did not predict official PCS.
+
+\section{Method summary}\label{sec:summary}
+Figure~\ref{fig:overview} shows the deployed system. The public checkpoint runs unchanged. Our changes sit at its two interfaces: on the input side, the placement of the route targets (Section~\ref{sec:route}); on the output side, a rule layer that edits the 64 planned poses before the AlpaSim controller executes them (Sections~\ref{sec:veto} and~\ref{sec:variants}). Maps, expert futures and scene identities are absent from the deployed interface; the only perception the rules use is the policy's own output.
+
+\begin{figure}[htbp]
+\centering
+\input{figures/system_overview}
+\caption{System overview. (a) The \texttt{lf-013} inference loop. The public checkpoint (blue, shaded box) is used unchanged; our changes (orange) are the route-target placement, used by every entry from \lf{} on, and the bend veto, which reads the policy's own predicted road map and object boxes and edits the 64 planned poses before the AlpaSim controller executes them. The camera thumbnail is a frame rendered in one of our local AlpaSim rollouts from the public track assets \cite{trackdata} (CC BY-NC-SA 4.0). (b) Route targets on a bend: we place the 40/60/80\,m targets along the road, using the route's 42.1\,m start offset, where the original adapter used the straight-line distance. (c) Bend veto: the nominal plan cuts a bend where the predicted road is weak, and the veto shifts it laterally. Panels (b) and (c) are schematic and not to scale. Maps and expert futures are absent from the deployed policy interface.}\label{fig:overview}
+\end{figure}
+
+We submitted four entries. \lf{} (October 30) is the public checkpoint with the route correction. \texttt{lf-010} (November 6) adds a decoder-only adaptation on SimScale recovery data, plan sampling and a lead-departure rule. \texttt{lf-012} (November 13) returns to \lf{}'s weights and applies the lead-departure rule and a 5$^\circ$ bend veto. \texttt{lf-013} (November 17), our final entry, is the \texttt{lf-012} image with the lead-departure rule switched off and the veto threshold raised to 10$^\circ$, so it is \lf{} plus the bend veto alone. Official results throughout are from the public leaderboard saved on November 18, 2026, after the nuPlan submission deadline.
+
+\section{Policy description}
+\subsection{Base policy}\label{sec:base}
+The released roughly 68M-parameter Latent TransFuser (LTF) \cite{transfuser} uses a ResNet-34 visual backbone, latent bird's-eye-view features, auxiliary semantic/object heads, and a waypoint-only flow planner. For nuPlan it consumes \texttt{PCAM\_F0} (packaged at width 352, height 512), its one-second history frame, ego speed, and up to three route targets. The planner produces 64 ego-frame poses at 0.1 s spacing, using eight flow integration steps and zero sampling temperature for the nominal plan. The adapter supplies positions and headings; the simulator's controller produces steering and acceleration. The predicted road map and object boxes used by the rules below are model output, not privileged ground truth.
+
+\subsection{Route-interface correction}\label{sec:route}
+The served route begins ahead of the ego. Treating the straight distance to its first point as route arc length misplaces the checkpoint's 40/60/80 m targets on bends. Our adapter uses the pinned runtime's route-start arc offset ($10\times80/19\simeq42.105$ m), interpolates along the supplied polyline, and estimates the short missing segment for the 40 m target from its initial curvature. It retains the original construction when the expected spacing check fails; this heuristic is specific to that route contract. A second switch keeps the served route intact instead of truncating it at the point nearest the ego, which could remove targets on tight turns. Neither correction reads an HD map, future logged trajectory, or scene identity at deployment. Every entry from \lf{} on uses both switches.
+
+\subsection{Bend veto}\label{sec:veto}
+The bend veto is the only rule in our final entry. When the nominal plan bends by at least 10$^\circ$ and the policy's own predicted road map gives probability below 0.5 under the planned footprint, the plan is shifted laterally by 0.5 or 1.0 m if the shifted plan is clearly better supported and touches no predicted vehicle; otherwise the plan is kept. The veto changes only the path, never the timing along it. \texttt{lf-012} ran the same rule with a 5$^\circ$ threshold alongside the lead-departure rule below; \texttt{lf-013} is the \texttt{lf-012} image with two settings changed and no file changed: the lead-departure rule is switched off and the bend threshold is raised to 10$^\circ$. We chose this configuration because, on all 1,472 local scenes, the stand-alone veto acted in 47 scenes, turned 10 off-road zero-score scenes into score-one scenes, and lost no score-one scene.
+
+\subsection{Earlier inference variants}\label{sec:variants}
+\texttt{lf-010} includes \emph{Track A}, which samples 16 plans at temperatures 1.5/2.0 and switches only when the nominal plan fails checks using predicted road and object outputs. It then applies a \emph{lead-departure rule}: for ego speed below 0.5 m/s, a predicted moving lead and existing motion intent, it accelerates progress along the nominal path subject to gap and predicted-box checks. The implementation can extrapolate beyond the nominal path. These two rules and the changed weights were submitted together, so the official result does not identify which component caused \texttt{lf-010}'s regression. \texttt{lf-012} keeps \lf{}'s weights, uses no sampling, and applies the lead-departure rule together with the 5$^\circ$ bend veto. Which of \texttt{lf-012}'s two rules cost it PCS could not be resolved from local data, which is why the final entry removed the lead-departure rule and kept the veto.
+
+\section{Resources and training}
+\subsection{Public resources and licenses}
+Table~\ref{tab:resources} lists every external resource. The base checkpoint's card additionally discloses Physical AI AV and NuRec pretraining, governed by the NVIDIA Autonomous Vehicle Dataset License \cite{nvidiadata}; we inherit these weights rather than repeat that training. No private dataset was added by our team. SimScale's code is Apache-2.0; its data license is distinct.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Public resources and declared terms. Links are in the references.}\label{tab:resources}
+\begin{tabular}{L{3.0cm}L{5.0cm}L{3.8cm}}
+\toprule
+Resource & Use & License / terms \\
+\midrule
+py123d\_garage / 123D & Policy, driver, conversion tools \cite{garage,py123d} & Apache-2.0 code \\
+Released waypoint seed 1 & Unchanged \lf{} initialization \cite{weights} & CC BY-NC-SA 4.0 \\
+nuPlan / OpenScene & Real observations, poses, boxes, routes \cite{nuplan,openscene} & CC BY-NC-SA 4.0; nuPlan terms \\
+SimScale recovery & Synthetic observations/labels \cite{simscale} & CC BY-NC-SA 4.0 data \\
+AlpaSim / track assets & Simulation; later research collection \cite{alpasim,trackdata} & Apache-2.0 code; CC BY-NC-SA 4.0 assets \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Decoder-only adaptation for \texttt{lf-010}}\label{sec:lf010}
+We start from the same public seed-1 weights and update only the planning decoder. The corrected SimScale recovery corpus supplies perturbed observations and four-second targets. We repaired timestamp/route conversion, excluded invented future tails from supervised labels, and paired opposite teacher-relative lateral residuals within city, turn and speed groups. The retained training pools contain 3,412 recovery and 2,272 rendered-preservation anchors, plus 512 independent real-image preservation examples. All 44 public-evaluation source recordings and eight reserved recordings are excluded from this recovery training pool.
+
+The submitted checkpoint uses 1,024 AdamW steps, batch 4, float32, learning rate $5\times10^{-6}$, zero weight decay and gradient clipping at 1. Batch shares are 25\% recovery, 12.5\% rendered preservation and 62.5\% real preservation. Four-second supervision uses the first 40 poses; detached teacher continuation fills the remaining horizon before noising. On preservation examples we match the frozen \lf{} teacher's denoising output. City quotas prevent the large Las Vegas pool from dominating. This schedule visits 1,024 distinct recovery anchors; ``full pool'' describes selection coverage, not a full training epoch. Appendix~\ref{app:detail} gives the per-city exposure.
+
+\subsection{On-policy adaptation, not submitted}\label{sec:onpolicy}
+Inspired by RoaD \cite{road}, we collect guided public-development rollouts using 64 policy samples and logged-human trajectory guidance, then fit only the flow denoiser while preserving the original policy on normal observations. Maps and human futures are collection-only inputs. These experiments use 14,624,767 trainable parameters, cached frozen features, float32 AdamW, learning rate $5\times10^{-6}$, batch 8 and 256 steps; their mixture is 25\% recovery, 25\% rendered preservation and 50\% real preservation. This differs from the submitted SimScale recipe. Public recordings used for collection are retired from validation for this branch; prior public-set reuse is still disclosed. Section~\ref{sec:onpolicyresults} reports the outcome.
+
+\section{Results}\label{sec:results}
+\subsection{Local protocol}
+Our local benchmark uses AlpaSim with the public nuPlan/MTGS assets. The public manifest contains 1,485 scenes; the matched comparison below covers 1,472 available/scored scenes across 44 recordings, and we retain the evaluated scene IDs. Local runs use 2 Hz replanning after 0.5 s initial takeover, the pinned scorer with its corridor correction, and fixed controller gains. We compare identical scene lists, repair a non-reproducing historical baseline batch with a fresh baseline, and report score changes together with incidents and score-one retention. The 609-scene development panel overrepresents hard scenes, so its weighted estimate is kept apart from the unweighted 1,472-scene mean; the complementary 863 scenes assess regressions on easier cases. Section~\ref{sec:limits} discusses how far this proxy stands from the private official suite.
+
+\subsection{Local comparison}
+Table~\ref{tab:local} gives the corrected local comparison. The bend-veto-only row is \texttt{lf-013}'s rule run stand-alone on November 11; with official-mix scene weights its gain over \lf{} is $+0.0086$ [$+0.0029$, $+0.0154$]. Lead-only is a local experiment, not a separate official entry. On this benchmark every variant beats \lf{}, and every combined-rule variant beats the veto alone.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Corrected local comparison on 1,472 matched scenes. Zeros are scenes with exactly zero score; incidents are scenes with an off-road event or an at-fault collision.}\label{tab:local}
+\begin{tabular}{lrrr}
+\toprule
+Variant & Mean score $\uparrow$ & Zero scenes $\downarrow$ & Incidents $\downarrow$ \\
+\midrule
+\lf{} & 0.9132 & 52 & 52 \\
+\lf{} + lead rule only & 0.9189 & 52 & 52 \\
+SimScale-512 + both rules & 0.9272 & 41 & 40 \\
+SimScale-1024 + both rules (\texttt{lf-010}) & 0.9303 & 38 & 38 \\
+\lf{} + lead rule + 5$^\circ$ bend veto (\texttt{lf-012}) & 0.9277 & 39 & 39 \\
+\lf{} + 10$^\circ$ bend veto only (\texttt{lf-013}) & 0.9200 & 42 & 42 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Official results}\label{sec:official}
+Table~\ref{tab:official} gives all four entries from one public leaderboard snapshot \cite{board}, saved on November 18, 2026 at 18:56 IST after the submission deadline, with 286 entries from 63 accounts: 57 participating teams and six host accounts. PCS is jointly fitted and changes with the reference population; in the November 13 snapshot \lf{}, \texttt{lf-010} and \texttt{lf-012} had PCS 2302, 2240 and 2261. The bracketed ranges are the board's 95\% posterior intervals from its jointly fitted model, whereas the local means in Table~\ref{tab:local} are point estimates over the 1,472 scenes. Among the participating teams' best entries, \texttt{lf-013}'s PCS is the 4th highest of 57. The board's own rank column orders entries by a conservative rank bound and lists \lf{} 13th and \texttt{lf-013} 21st of 286 entries. Late-evaluated entries kept arriving after this snapshot, and every arrival refits all scores: on November 18 at 20:11 IST (291 entries) \texttt{lf-013} had PCS 2528 and our team was 4th in both orderings. Final standings follow the organizers' additional evaluation runs for the top teams.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Official nuPlan results of all four entries, from the public leaderboard snapshot of November 18, 2026 (18:56 IST, 286 entries) \cite{board}. Brackets are the board's 95\% posterior intervals.}\label{tab:official}
+\begin{tabular}{lrrr}
+\toprule
+Entry & Mean score $\uparrow$ & PCS [95\% interval] $\uparrow$ & km / incident $\uparrow$ \\
+\midrule
+\lf{} & 0.9454 & 2487 [2341, 2633] & 1.039 \\
+\texttt{lf-010} & 0.9433 & 2367 [2218, 2515] & 0.929 \\
+\texttt{lf-012} & 0.9462 & 2412 [2250, 2574] & 1.110 \\
+\texttt{lf-013} & 0.9494 & 2502 [2317, 2687] & 1.364 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Figure~\ref{fig:position} tracks our position over the challenge by each team's best PCS so far. Every point uses the scores refitted on the post-deadline board of November 18, so earlier positions can differ from what the board showed on that day. Our line ends 4th of the 57 participating teams; the board's rank column places our team 9th in the same snapshot and 4th in the later refit above.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{figures/nuplan-team-position-20261118.png}
+\caption{Team position over time on the nuPlan public board, by each team's best PCS so far, using the scores refitted on the post-deadline board of November 18. The vertical line marks \lf{}, the host's v0.2.0 checkpoint with our route fix. Positions below 20 are cut off.}\label{fig:position}
+\end{figure}
+
+\subsection{What transferred}\label{sec:transfer}
+On the earlier 1,473-scene matched panel, exact arc targets increased the mean by 0.0054 and reduced zero-score scenes from 62 to 52. At the October 31 official snapshot, \lf{} scored 0.9454 versus 0.9437 for the host's entry using the same released checkpoint. In contrast, \texttt{lf-010}'s local gain of about 0.017 did not transfer: its official mean decreased by 0.00217 and incident distance worsened. \texttt{lf-012}, which changes no weights, shows a different failure: its official mean rose by 0.00072 and its incident distance improved, yet its PCS point estimate is 75 below \lf{}'s. \texttt{lf-013}, the smallest change, is the only variant that carried over on all three measures: its official mean rose by 0.0040, its distance between at-fault incidents by 31\% (1.039 to 1.364 km), and its PCS point estimate by 15. The two rule entries also differ in footprint. \texttt{lf-012}'s distance to the human path rose 3.0\% officially (0.585 to 0.603 m) against 1.5\% locally, so its rules acted more, or moved more, on the hidden recordings; \texttt{lf-013}'s rose 0.7\% officially against 0.9\% locally. The PCS intervals of all four entries overlap (Section~\ref{sec:limits}).
+
+\subsection{Why mean score is insufficient}
+The organizer's Drive-IRT implementation models zero, intermediate and score-one outcomes separately \cite{driveirt}. We also count transitions at its 0.0001/0.9999 cutoffs; its zero class includes near-zero progress scores beyond Table~\ref{tab:local}'s exact zeros. \texttt{lf-010} loses 11 locally score-one scenes; lead-only loses none and improves 32 scene scores without worsening any. However, local PCS still ranks \texttt{lf-010} above \lf{}. Thus neither the mean nor this local PCS fit explains the official reversal. \texttt{lf-012} was selected to lose no local score-one scene (it gains 21 and removes 13 incident scenes), yet its PCS is also below \lf{}'s. The stand-alone veto in \texttt{lf-013} acts in fewer scenes, changes only the path, and passed the same local test (10 gained, none lost); it is the one rule whose local signal transferred.
+
+\subsection{On-policy adaptation}\label{sec:onpolicyresults}
+Table~\ref{tab:onpolicy} compares the on-policy branch of Section~\ref{sec:onpolicy} with a fresh \lf{} on 48 preselected public scenes. Neither round's interval excludes zero. Larger gains on a repeatedly used 11-scene development panel are dominated by one Pittsburgh stall rescue, and the broader comparison does not establish general improvement. A separate earlier-intervention \emph{teacher}, used only at collection time, reduces off-road failures from 6 to 3 on 24 training scenes, with score 0.750 to 0.875 and no lost perfect control; its three rescues span only two recordings, and wrong-lane flags increase from 9 to 10. Later guided and shadow-label fits, including the failed 417-scene development check, are recorded in Appendix~\ref{app:history}.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Unguided learned-policy comparison on 48 preselected public scenes (20 recordings; 12 scenes per city). Intervals bootstrap recordings. No arm loses a score-one scene or adds a scored hard failure on this panel.}\label{tab:onpolicy}
+\begin{tabular}{lrr}
+\toprule
+Policy & Mean score & Paired gain [95\% interval] \\
+\midrule
+Fresh \lf{} & 0.86835 & --- \\
+On-policy round 1, step 256 & 0.87081 & +0.00246 [$-0.00020$, +0.00840] \\
+On-policy round 2, step 256 & 0.87010 & +0.00174 [$-0.00004$, +0.00481] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Runtime and reproducibility}
+\paragraph{Compute.}
+Local adaptation/evaluation used one NVIDIA RTX PRO 4000 Blackwell GPU with 24 GB VRAM. One local evaluation of all 1,472 public scenes took about 3.5--3.7 hours on this GPU. Full-model training of the older checkpoint ran at about 190 samples per second, for example about 2 hours for seven epochs on 184,612 training samples; cached features permit much shorter decoder-only runs. We did not log total GPU hours. The whole project, including the experiment families in Appendix~\ref{app:history}, used substantially more compute than the runs reported in the main text.
+
+\paragraph{Latency.}
+In the combined-rule local run, additional sampling averaged 26.8 ms per call over 6,090 calls, on top of approximately 33 ms nominal inference. These are local component timings: they exclude parts of the simulator/RPC pipeline and are neither official end-to-end latency nor a peak-VRAM measurement.
+
+\paragraph{Entries and artifacts.}
+All four entries completed successfully, and every warm-up scored 32/32 rollouts. Because of the deadline, \texttt{lf-013}'s official submission was sent while its warm-up was still queued; the warm-up ran and succeeded afterwards. Appendix~\ref{app:repro} records the submission identities, checkpoint hashes and container digests of all four entries, and the exact leaderboard responses behind Table~\ref{tab:official}.
+
+\section{Limitations and safety considerations}\label{sec:limits}
+\paragraph{Validity of the local benchmark.}
+Our local benchmark is a public proxy, not a reproduction of the private 1,000-rollout official suite; runtime and replanning differences add to the transfer uncertainty. Repeated model selection on the same public recordings limits the independence of the local results. The \lf{} comparison with the host's entry is an observed entry comparison, not a controlled official ablation of every runtime detail.
+
+\paragraph{Statistical resolution.}
+\texttt{lf-013} has our best official point estimates, but its PCS interval overlaps \lf{}'s, and the intervals of all four entries overlap; we treat the entries as statistically indistinguishable on the public board and claim no resolved capability difference from the point estimates. We make no fixed ``PCS per mean-score point'' conversion, and we do not claim that the private nuPlan set is out of distribution. A single entry cannot show whether the lead rule or the 5$^\circ$ threshold caused \texttt{lf-012}'s loss. The earlier-intervention teacher of Section~\ref{sec:onpolicyresults} is a collection-time tool, not a learned checkpoint or a leaderboard result.
+
+\paragraph{Failure modes.}
+Off-road drift and incomplete progress remain material weaknesses. Sparse look-ahead route points provide no direct near-field road guarantee; predicted BEV boundaries and object velocities can be inaccurate. Lead-only changed motion during recorded human-wait intervals in four scenes despite tied scene scores; it has no traffic-light input or reliable lane-level lead association. A 70-scene targeted guard study reduced gains with motion/path-support vetoes, while a collision veto was inactive. Zero new scored incidents therefore does not demonstrate safe waiting behavior or safe extrapolation. In six inspected stall rollouts the rendered traffic lights never changed, and one apparent red signal was a light on a building facade (Figure~\ref{fig:signal}); we built no rule that departs at a rendered red light.
+
+\paragraph{Safety and broader impact.}
+All results are simulation evidence. A score of one can reflect saturated progress rather than flawless driving; unscored behaviors still matter. Shared recordings, repeated selections, short rollouts, limited recovery labels and private/public differences constrain generalization. The bend veto and the lead-departure rule are tuned to one simulator and one route format, have no traffic-light input, and are research findings, not safety mechanisms or validated real-vehicle behavior. The positive contribution of this work is methodological: it records which local improvements did and did not transfer to a hidden closed-loop benchmark, which may help others avoid over-trusting public-scene scores. We release no model or data.
+
+\section{Conclusion}
+Four entries built on one public checkpoint gave a clear ordering on the hidden benchmark that our local benchmark did not predict. The two changes that transferred, the route-interface correction and the bend veto, each touch an interface of the policy and use only its inputs and its own predictions. The changes that did not transfer, a decoder-only adaptation on synthetic recovery data, plan sampling and a lead-departure rule, raised the local mean score and lowered official PCS. With all PCS intervals overlapping, the safe reading is narrow: on this benchmark, small inference-side corrections grounded in the policy's own perception carried over, and local gains from larger changes did not. The experiment history in Appendix~\ref{app:history} and the artifact identities in Appendix~\ref{app:repro} are provided so that both findings can be checked.
+
+\section*{Acknowledgements}
+We thank the AlpaSim challenge organizers at NVIDIA, KE:SAI and HKU (OpenDriveLab), and the py123d\_garage team for the public baseline we built on. AI coding and writing assistants were used for implementation, analysis and drafting; the author checked all results and references.
+
+\begin{thebibliography}{99}
+\bibitem{garage} KE:SAI Labs. \emph{py123d\_garage}, code and AlpaSim adapter. \url{https://github.com/kesai-labs/py123d_garage}. Pinned entry code: v0.2.2, \texttt{ad6cb51}, plus our route patch.
+\bibitem{weights} KE:SAI Labs. \emph{py123d\_garage pretrained checkpoints}, file \texttt{v0.2.0/ltf-base-waypoints-68M/posttrain/model\_1.pth}. \url{https://huggingface.co/kesai-labs/py123d_garage_pretrained_checkpoints}.
+\bibitem{py123d} D. Dauner et al. \emph{123D: Unifying Multi-Modal Autonomous Driving Data at Scale}. arXiv:2605.08084, 2026. \url{https://arxiv.org/abs/2605.08084}.
+\bibitem{nuplan} Motional. \emph{nuPlan dataset and terms of use}. \url{https://www.nuscenes.org/nuplan}; \url{https://www.nuscenes.org/terms-of-use}.
+\bibitem{openscene} OpenDriveLab. \emph{OpenScene sensor data}. \url{https://huggingface.co/datasets/OpenDriveLab/OpenScene}.
+\bibitem{simscale} H. Tian et al. \emph{SimScale: Learning to Drive via Real-World Simulation at Scale}. arXiv:2511.23369, 2025. \url{https://huggingface.co/datasets/OpenDriveLab/SimScale}.
+\bibitem{alpasim} NVIDIA. \emph{AlpaSim}. \url{https://github.com/NVlabs/alpasim}.
+\bibitem{trackdata} OpenDriveLab. \emph{AlpaSim Challenge 2026 nuPlan track assets}. \url{https://huggingface.co/datasets/OpenDriveLab/AlpasimChallenge2026_nuplan_track}.
+\bibitem{driveirt} KE:SAI Labs. \emph{Drive-IRT}. \url{https://github.com/kesai-labs/drive-irt}. Reviewed implementation: \texttt{82ddd5a42333cacf94c3b652d531101484567f47}.
+\bibitem{road} G. Garcia-Cobo et al. \emph{RoaD: Rollouts as Demonstrations for Closed-Loop Supervised Fine-Tuning of Autonomous Driving Policies}. arXiv:2512.01993, 2025. \url{https://arxiv.org/abs/2512.01993}.
+\bibitem{nvidiadata} NVIDIA. \emph{Physical AI Autonomous Vehicles and NuRec}. \url{https://huggingface.co/datasets/nvidia/PhysicalAI-Autonomous-Vehicles}; \url{https://huggingface.co/datasets/nvidia/PhysicalAI-Autonomous-Vehicles-NuRec}. The inherited checkpoint card identifies these resources and the NVIDIA Autonomous Vehicle Dataset License.
+\bibitem{board} NVIDIA. \emph{AlpaSim E2E Closed Loop Challenge 2026 leaderboard}. \url{https://nvidia-alpasime2eclosedloopchallenge2026.hf.space/}. Official results use saved dated responses, not a live ranking.
+\bibitem{gatedvla} K. Hiratsuka, N. Takada and M. Kawano. \emph{GatedVLA with Camera-Based Emergency Braking: AlpaSim E2E Closed Loop Challenge Technical Report}. arXiv:2611.01663, 2026.
+\bibitem{laosiji} C. Gao et al. \emph{Lao Siji: Adapting openpilot to Closed-Loop End-to-End Driving in Neural Reconstruction}. arXiv:2611.19922, 2026.
+% References below support Appendix C. arXiv identifiers, titles and first authors were checked against the arXiv API,
+% and every URL returned HTTP 200, on 2026-11-09.
+\bibitem{vavam} F. Bartoccioni et al. \emph{VaViM and VaVAM: Autonomous Driving through Video Generative Modeling}. arXiv:2502.15672, 2025. Code: \url{https://github.com/valeoai/VideoActionModel}.
+\bibitem{mup} G. Yang et al. \emph{Tensor Programs V: Tuning Large Neural Networks via Zero-Shot Hyperparameter Transfer}. arXiv:2203.03466, 2022.
+\bibitem{wajepa} X. Wang et al. \emph{WA-JEPA: Rethinking the Video JEPA Paradigm for World-Action Modeling in Autonomous Driving}. arXiv:2608.20974, 2026. Checkpoints: \url{https://huggingface.co/AFARI-Research/WA-JEPA}.
+\bibitem{gtrs} Z. Li et al. \emph{Generalized Trajectory Scoring for End-to-end Multimodal Planning}. arXiv:2506.06664, 2025. Code: \url{https://github.com/NVlabs/GTRS}.
+\bibitem{cosmos3edge} NVIDIA. \emph{Cosmos3-Edge} model card. \url{https://huggingface.co/nvidia/Cosmos3-Edge}.
+\bibitem{cosmos} NVIDIA. \emph{Cosmos World Foundation Model Platform for Physical AI}. arXiv:2501.03575, 2025.
+\bibitem{odyssey} Odyssey. \emph{Introducing Odyssey-3: A General-Purpose Physical Intelligence}. Announcement, \url{https://odyssey.systems/introducing-odyssey-3}.
+\bibitem{optuna} T. Akiba et al. \emph{Optuna: A Next-generation Hyperparameter Optimization Framework}. arXiv:1907.10902, 2019.
+\bibitem{transfuser} K. Chitta et al. \emph{TransFuser: Imitation with Transformer-Based Sensor Fusion for Autonomous Driving}. arXiv:2205.15997, 2022.
+\bibitem{pdm} D. Dauner et al. \emph{Parting with Misconceptions about Learning-based Vehicle Motion Planning}. arXiv:2306.07962, 2023.
+\bibitem{hydramdp} Z. Li et al. \emph{Hydra-MDP: End-to-end Multimodal Planning with Multi-target Hydra-Distillation}. arXiv:2406.06978, 2024.
+\bibitem{wiseft} M. Wortsman et al. \emph{Robust fine-tuning of zero-shot models}. arXiv:2109.01903, 2021.
+\bibitem{soups} M. Wortsman et al. \emph{Model soups: averaging weights of multiple fine-tuned models improves accuracy without increasing inference time}. arXiv:2203.05482, 2022.
+\bibitem{dagger} S. Ross, G. J. Gordon and J. A. Bagnell. \emph{A Reduction of Imitation Learning and Structured Prediction to No-Regret Online Learning}. arXiv:1011.0686, 2010.
+\bibitem{rogdagger} L. Zhong et al. \emph{RoG-DAgger: Rollout-Guided Post-Training for End-to-End Driving}. arXiv:2608.24525, 2026.
+\bibitem{lead} L. Nguyen et al. \emph{LEAD: Minimizing Learner-Expert Asymmetry in End-to-End Driving}. arXiv:2512.20563, 2025.
+\bibitem{nuscenes} H. Caesar et al. \emph{nuScenes: A multimodal dataset for autonomous driving}. arXiv:1903.11027, 2019.
+\bibitem{nureasoning} \emph{nuReasoning} dataset. \url{https://huggingface.co/datasets/nureasoning/nuReasoning}.
+\bibitem{drivecot} T. Wang et al. \emph{DriveCoT: Integrating Chain-of-Thought Reasoning with End-to-End Driving}. arXiv:2403.16996, 2024.
+\bibitem{cascade} NVIDIA. \emph{CASCADE: Causal Spatio-Temporal Analysis of Driving Environments} dataset. \url{https://huggingface.co/datasets/nvidia/cascade}.
+\bibitem{worldengine} OpenDriveLab. \emph{WorldEngine} dataset. \url{https://huggingface.co/datasets/OpenDriveLab/WorldEngine}.
+\bibitem{diffplanner} Y. Zheng et al. \emph{Diffusion-Based Planning for Autonomous Driving with Flexible Guidance}. arXiv:2501.15564, 2025. Code: \url{https://github.com/ZhengYinan-AIR/Diffusion-Planner}.
+\bibitem{hdp} Y. Zheng et al. \emph{Unleashing the Potential of Diffusion Models for End-to-End Autonomous Driving}. arXiv:2602.22801, 2026. Code (Hyper-Diffusion-Planner): \url{https://github.com/ZhengYinan-AIR/Hyper-Diffusion-Planner}.
+\bibitem{diffusiondrive} B. Liao et al. \emph{DiffusionDrive: Truncated Diffusion Model for End-to-End Autonomous Driving}. arXiv:2411.15139, 2024.
+\bibitem{wamflow} Y. Xu et al. \emph{WAM-Flow: Parallel Coarse-to-Fine Motion Planning via Discrete Flow Matching for Autonomous Driving}. arXiv:2512.06112, 2025. Code: \url{https://github.com/fudan-generative-vision/WAM-Flow}.
+\bibitem{alpamayo} NVIDIA. \emph{Alpamayo-R1: Bridging Reasoning and Action Prediction for Generalizable Autonomous Driving in the Long Tail}. arXiv:2511.00088, 2025.
+\bibitem{opted} D. Da Col et al. \emph{OPTED: On-Policy Fine-Tuning for End-to-End Driving using a Render-Free Teacher}. arXiv:2609.20756, 2026.
+\end{thebibliography}
+
+\appendix
+\section{Artifact identities and reproducibility}\label{app:repro}
+\paragraph{Primary entry.}
+\lf{} is submission \nolinkurl{bcb5aca3-6b1d-4a72-8b3c-780dffd5ab03}. The upstream seed-1 file is packaged as \texttt{/opt/checkpoint/model\_0.pth}; that filename change does not change the seed or weights. Its SHA-256 is \nolinkurl{ae1619d546e5aacfa7540b2b5edbcdf49b2f321b7fccd94374452eded243aaca}. The registry manifest digest is \nolinkurl{sha256:c84c50b819e33cce16cd2ed06c44145a0e85d3668cf78a37a322220f6d649ec1}. The image enables \texttt{exact\_route\_targets=true} and \texttt{keep\_served\_route\_whole=true}; default controller gains are unchanged.
+
+\paragraph{Adapted entry.}
+\texttt{lf-010} is submission \nolinkurl{d8218a87-2f75-41e7-bbb6-9329ae37a63e}, registry manifest \nolinkurl{sha256:11ac326e736096d71a3c61f7b0072b360df37c9d5f6e2275ac5221b423775188}. It replaces only the checkpoint in the combined-hook image. Its recipe is the 1,024-step corrected recovery run, not the earlier uncorrected step-500 run, the later 3,412-step extension, or the on-policy experiment. It uses the same underlying route fixes. Local Docker image IDs and registry manifest digests are tracked separately; they are not interchangeable identities.
+
+\paragraph{Rule-only entry.}
+\texttt{lf-012} is submission \nolinkurl{346b9928-1884-40a0-b9eb-5c7fbd797b5c}, registry manifest \nolinkurl{sha256:571f5691ab78cbfe2b440e93da883ebe41062fe7524727d4320cc0ab9148a4f2}. It adds a rule layer to the \lf{} image: the checkpoint, driver files and route fixes are byte-identical to \lf{}, the lead-rule file is identical to \texttt{lf-010}'s, and the bend limit is 5$^\circ$. Follow-through, adjacent-traffic and fallback code paths in that layer are switched off and did not run. Default controller gains are unchanged.
+
+\paragraph{Final entry.}
+\texttt{lf-013} is submission \nolinkurl{81976c46-e9f8-453e-a7d2-06902c53b8b8}, registry manifest \nolinkurl{sha256:82147ba3889e8c105e7e075e1dd14c1f5bee8dbdbfa421d2dc367136a3836084}. Its Dockerfile builds from the \texttt{lf-012} image (manifest \nolinkurl{sha256:571f5691ab78cbfe2b440e93da883ebe41062fe7524727d4320cc0ab9148a4f2}) and sets only \texttt{LEAD\_ARM=off} and \texttt{VETO\_BEND\_DEG=10}; no file changes. The image's startup line reports \texttt{veto=active lead=off adjacent=off bend\_deg=10.0}. The rule files match, by SHA-256, those of the November 11 stand-alone veto run, and the veto reproduces that run's decisions on all 770 saved planning calls offline; equivalence was shown offline, not by a new closed-loop run. The stand-alone run's per-scene results are retained in the author's records.
+
+\paragraph{Official snapshot and local denominator.}
+Table~\ref{tab:official} and Table~\ref{tab:entries} use a saved leaderboard response fetched 2026-11-18 18:56:59 IST, after the November 16 (AoE) submission deadline, i.e.\ 11:59 UTC on November 17, with 286 entries from 63 accounts (57 participating teams and six host accounts). The November 13 values quoted in Section~\ref{sec:official} come from a response saved 2026-11-13 11:05:41 IST with 244 entries. Table~\ref{tab:local} uses the corrected 609+863 comparison, not the old non-reproducing baseline or a weighted 331-scene extrapolation. Its \texttt{lf-012} row comes from a later run of the same 1,472 scenes, executed as 814 development and 658 confirmation scenes and compared scene by scene with the same \lf{} scores. The earlier route-interface ablation has 1,473 scenes and is reported separately. No absent scene is silently imputed a perfect score. The saved leaderboard responses and per-scene metric artifacts are available from the author on request.
+
+\section{Additional experimental detail}\label{app:detail}
+\paragraph{Recovery exposure.}
+The retained 3,412 training anchors comprise Las Vegas 2,168, Boston 604, Pittsburgh 322 and Singapore 318. The 1,024 supervised draws visit 448, 232, 176 and 168 distinct anchors in those cities, respectively. Rendered controls contribute 512 distinct draws; the 512 real controls contribute 2,560 draws. On reused reserved examples, recovery error improves by 0.1667 m at step 512 and 0.2719 m at step 1,024. Real-image deviation from \lf{} is respectively 0.0356 and 0.0509 m; these are teacher-relative deviations, not accuracy against human labels. These open-loop checks did not predict official transfer.
+
+\paragraph{On-policy data separation.}
+The later collection branch splits the 44 public recordings into 22 development and 22 protected confirmation recordings; development is further divided into 12 collection and 10 selection recordings. The first expanded training pool contains 541 recovery and 556 rendered-preservation anchors plus 512 real controls outside the 44 public logs. Round 2 adds 182 recovery anchors. A separate startup-coverage arm reconstructs actual warm-up poses instead of mistaking shadow controller predictions for executed motion. It adds 137 recovery and 155 rendered controls, but does not improve the reused development result. Native initial history is padded when real history is unavailable; it is not described as an observed one-second past frame.
+
+The 48-scene panel is preselected for the compared learned arms, but uses public recordings with historical exposure. Singapore has no open-loop selection recording in this branch, although it is represented in closed-loop panels. These limits preclude a strong claim of independent distributional validation. Neither public collection guidance nor map/label checks are available to the submitted inference policy. The author's records index supporting files and hashes, separating observations from proposals, and are available on request.
+
+\paragraph{Rendered traffic lights.}
+For 6 of the 20 local stall rollouts that we had labelled ``held at a signal, no lead, no cue'', we extracted the rendered front-camera frames 0.5, 3.5 and 5.0 s after takeover. In all six the rendered signals look the same at the three times, although the logged human driver departed 0.8--3.0 s after takeover: clearly red in three, ambiguous in three. Figure~\ref{fig:signal} shows one ambiguous case, in which what reads as a red signal is a glow on a building facade while the real signal heads are ghosted by the reconstruction. A static scene reconstruction cannot show a light change, so these stalls do not show that the policy ignores a green light, and departure fine-tuning on nuPlan frames cannot remove them. We inspected only six rollouts, by eye.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{figures/rendered_signal_982b57b1.jpg}
+\caption{Rendered front camera in a local stall rollout (public Boston scene \texttt{982b57b1}, rendered from the public track assets \cite{trackdata}, CC BY-NC-SA 4.0). Left: full frame 0.5 s after takeover; the box marks the crop. Middle and right: the crop at 0.5 s and at 5.0 s. The crops are unchanged (mean absolute pixel difference 0.4 of 255), although the logged human departed 2.0 s after takeover. The red glow that reads as a red signal lies on the facade, most likely a storefront light; the signal heads on the mast arm are ghosted.}\label{fig:signal}
+\end{figure}
+\input{experiment_history}
+\end{document}

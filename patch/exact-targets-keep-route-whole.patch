@@ -1,0 +1,140 @@
+diff --git a/src/py123d_garage/config/schema/evaluation/alpasim_config.py b/src/py123d_garage/config/schema/evaluation/alpasim_config.py
+index 3f6fcea..7b9d9d1 100644
+--- a/src/py123d_garage/config/schema/evaluation/alpasim_config.py
++++ b/src/py123d_garage/config/schema/evaluation/alpasim_config.py
+@@ -66,6 +66,14 @@ class AlpasimBenchmarkConfig(AbstractBenchmarkConfig):
+     route_memory: bool = False
+     # Extends the route straight along its final heading when it ends before the farthest target point.
+     extrapolate_route: bool = False
++    # Places each target point at its arc distance along the served route instead of on the straight walk onto it: the
++    # runtime serves route[0] at 10 * 80/19 = 42.105 m of route arc ahead, so a target sits (distance - 42.105) m past it.
++    # The target points the walk leaves out stay out.
++    exact_route_targets: bool = False
++    # Keeps the served route whole instead of cutting it at its point nearest the ego, when route memory is off: the
++    # runtime serves the route from 42.1 m of arc ahead, so none of it lies behind the ego, and on a tight bend the
++    # nearest point can sit near the route's end, which cut the route short and dropped every target point.
++    keep_served_route_whole: bool = False
+     # Hood from common/sensor/assets/ego_hoods pasted onto the front camera; None leaves the rendered frame as it is.
+     ego_hood: str | None = None
+     # Hood the renderer already draws on the front camera, blurred away under the pasted one; None when it renders none.
+diff --git a/src/py123d_garage/evaluation/alpasim/help/driver_service.py b/src/py123d_garage/evaluation/alpasim/help/driver_service.py
+index b14485e..4abd043 100644
+--- a/src/py123d_garage/evaluation/alpasim/help/driver_service.py
++++ b/src/py123d_garage/evaluation/alpasim/help/driver_service.py
+@@ -35,7 +35,7 @@ from py123d.datatypes import (
+ from py123d.datatypes.metadata.route_metadata import RouteMetadata
+ from py123d.datatypes.modalities.base_modality import BaseModality, get_modality_key
+ from py123d.geometry import PoseSE3, Vector3D
+-from py123d.geometry.transform import rel_to_abs_se3
++from py123d.geometry.transform import abs_to_rel_se2_array, rel_to_abs_se3
+ from typing_extensions import override
+ 
+ from py123d_garage.api.abstract_policy import AnyPolicy
+@@ -605,10 +605,13 @@ class GarageDriver(egodriver_pb2_grpc.EgodriverServiceServicer):
+ 
+         target_point_distances_m = policy.policy_config.required_target_point_distances_m
+         served_xy = rig_to_local_xy(route, ego_pose_local) if route is not None else np.zeros((0, 2), dtype=np.float64)
+-        route_xy = _route_ahead(
+-            _merge_route(session.route_xy_local if self._py123d_garage_config.route_memory else None, served_xy),
+-            ego_pose_local[:2],
+-        )
++        if self._py123d_garage_config.keep_served_route_whole and not self._py123d_garage_config.route_memory:
++            route_xy = served_xy
++        else:
++            route_xy = _route_ahead(
++                _merge_route(session.route_xy_local if self._py123d_garage_config.route_memory else None, served_xy),
++                ego_pose_local[:2],
++            )
+         session.route_xy_local = route_xy
+         # The target points walk from the ego onto the route; that first straight stretch stays out of the plots.
+         walk_xy = np.vstack([ego_pose_local[None, :2], route_xy]) if len(route_xy) > 0 else route_xy
+@@ -628,7 +631,30 @@ class GarageDriver(egodriver_pb2_grpc.EgodriverServiceServicer):
+                 navigation_scene_api,
+                 target_point_distances_m,
+                 nan_past_route_end=True,
+-            ).apply(lambda tensor: tensor.unsqueeze(0))
++            )
++            exact_poses = (
++                _exact_route_target_poses(served_xy, target_point_distances_m)
++                if self._py123d_garage_config.exact_route_targets and target_point_distances_m
++                else None
++            )
++            if exact_poses is not None:
++                origin = navigation_scene_api.get_ego_state_se3_at_iteration(0).rear_axle_se2
++                relative = np.full_like(exact_poses, np.nan)
++                reached = np.isfinite(exact_poses).all(axis=1)
++                if reached.any():
++                    relative[reached] = abs_to_rel_se2_array(origin=origin, pose_se2_array=exact_poses[reached])
++                exact = torch.as_tensor(relative, dtype=navigation.target_points.dtype)
++                # Only the placement changes: a target point the walk leaves out (past the route's end) stays out.
++                walked = torch.cat([navigation.target_points, navigation.target_point_headings[:, None]], dim=1)
++                placed = torch.isfinite(walked).all(dim=1) & torch.isfinite(exact).all(dim=1)
++                exact = torch.where(placed[:, None], exact, walked)
++                moves_m = torch.linalg.norm(exact[:, :2] - navigation.target_points, dim=-1)
++                LOG.info(
++                    f"exact route targets {session_uuid} plan {session.num_plans}: moved "
++                    f"{[round(float(m), 2) for m in moves_m]} m",
++                )
++                navigation = NavigationConditioning(target_points=exact[:, :2], target_point_headings=exact[:, 2])
++            navigation = navigation.apply(lambda tensor: tensor.unsqueeze(0))
+             device = next(policy.parameters()).device
+             with torch.no_grad():
+                 predictions = policy.forward(features.to(device), navigation.to(device))
+@@ -860,6 +886,57 @@ def _extend_route(
+     return np.vstack([polyline_xy, polyline_xy[-1] + heading / heading_norm * shortfall_m])
+ 
+ 
++# The runtime resamples the route at 80/19 m from the ego's projection and drops the points under 40 m.
++_SERVED_ROUTE_START_ARC_M = 10 * 80 / 19
++
++
++def _exact_route_target_poses(
++    served_xy: jt.Float64[npt.NDArray[np.float64], "num_served 2"],
++    target_point_distances_m: list[float],
++) -> jt.Float64[npt.NDArray[np.float64], "num_points 3"] | None:
++    """
++    Places target points at their arc distance from the ego along the served route, whose start is 42.105 m of arc ahead.
++
++    Args:
++        served_xy: the route the runtime serves now, in the local frame.
++        target_point_distances_m: the arc-length distances of the target points from the ego.
++
++    Returns:
++        (x, y, route heading) per target point in the local frame, NaN past the route's end; None when the route's
++        first spacing is not the runtime's, so the walked target points stay.
++    """
++    if len(served_xy) < 2:
++        return None
++    steps_m = np.linalg.norm(np.diff(served_xy, axis=0), axis=1)
++    if not 3.0 <= steps_m[0] <= 5.0:
++        return None
++    arc_m = np.concatenate([[0.0], np.cumsum(steps_m)])
++    first_heading = math.atan2(served_xy[1, 1] - served_xy[0, 1], served_xy[1, 0] - served_xy[0, 0])
++    # Turn per segment from the first two segments, for the stretch short of route[0] the runtime withholds.
++    turn_per_m = 0.0
++    if len(served_xy) >= 3 and steps_m[1] > 0.0:
++        second_heading = math.atan2(served_xy[2, 1] - served_xy[1, 1], served_xy[2, 0] - served_xy[1, 0])
++        turn_per_m = math.remainder(second_heading - first_heading, math.tau) / (0.5 * (steps_m[0] + steps_m[1]))
++    poses = np.full((len(target_point_distances_m), 3), np.nan, dtype=np.float64)
++    for index, distance_m in enumerate(target_point_distances_m):
++        past_start_m = distance_m - _SERVED_ROUTE_START_ARC_M
++        if past_start_m > arc_m[-1]:
++            continue
++        if past_start_m <= 0.0:
++            # Short of route[0]: back along the first segment's curvature (its heading holds at its midpoint).
++            chord_heading = first_heading + turn_per_m * (0.5 * past_start_m - 0.5 * steps_m[0])
++            poses[index, :2] = served_xy[0] + past_start_m * np.array([math.cos(chord_heading), math.sin(chord_heading)])
++            poses[index, 2] = first_heading + turn_per_m * (past_start_m - 0.5 - 0.5 * steps_m[0])
++            continue
++        # The heading looks back 1 m, as for the trained target points.
++        heading_from_m = max(past_start_m - 1.0, 0.0)
++        heading_to_m = max(past_start_m, heading_from_m + 1.0)
++        at = [np.interp([past_start_m, heading_from_m, heading_to_m], arc_m, served_xy[:, axis]) for axis in range(2)]
++        poses[index, :2] = at[0][0], at[1][0]
++        poses[index, 2] = math.atan2(at[1][2] - at[1][1], at[0][2] - at[0][1])
++    return poses
++
++
+ def _decode_image(image_bytes: bytes) -> jt.UInt8[npt.NDArray[np.uint8], "height width 3"]:
+     """
+     Decodes an encoded camera frame into an RGB image.
